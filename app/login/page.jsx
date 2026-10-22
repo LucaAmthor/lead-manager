@@ -32,6 +32,7 @@ export default function Login() {
           </svg>
           <span>lokalpilot</span>
         </div>
+        <p className="lp-auth-claim">Lokale Kampagnen auf Autopilot</p>
         <h1>Anmelden</h1>
         <p>Wir schicken dir einen Anmelde-Link per E-Mail. Kein Passwort nötig.</p>
         {fehler ? <p className="lp-auth-err">Der Link war abgelaufen oder wurde in einem anderen Browser geöffnet. Bitte neu anfordern.</p> : null}

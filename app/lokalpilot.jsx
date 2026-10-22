@@ -23,6 +23,17 @@ export default function Lokalpilot({ email }) {
       f.querySelector("span").textContent = email;
       fuss.after(f);
     }
+    // Leere Datenbank: Admin kann die Daten aus dem Prototyp mit einem Klick übernehmen
+    fetch("/api/import").then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (!j?.leer || !j.admin) return;
+      const box = document.createElement("div");
+      box.className = "lp-import";
+      box.innerHTML = `<b>Datenbank ist noch leer</b><span>Daten aus dem Prototyp übernehmen? (${j.anzahl} Einträge: Wochenblätter, Punk-Serie und drei Beispielkampagnen mit Bildern)</span><div class="btns"><button class="b small primary" type="button">Übernehmen</button><button class="b small ghost" type="button">Später</button></div>`;
+      const [ja, nein] = box.querySelectorAll("button");
+      nein.onclick = () => box.remove();
+      ja.onclick = async () => { ja.disabled = true; ja.textContent = "Übernehme …"; const r = await fetch("/api/import", { method: "POST" }); if (r.ok) location.reload(); else { ja.textContent = "Fehler – nochmal"; ja.disabled = false; } };
+      document.body.appendChild(box);
+    }).catch(() => {});
   }, [email]);
   return <div dangerouslySetInnerHTML={{ __html: markup }} />;
 }

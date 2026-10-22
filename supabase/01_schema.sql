@@ -69,6 +69,6 @@ create policy "lp-bilder hochladen" on storage.objects for insert to authenticat
 
 -- 6) Erste Mitglieder. Weitere Personen genauso eintragen.
 insert into public.lp_members (email, rolle) values
-  ('luca.amthor@solarsale24.com', 'admin')
-  -- , ('flo@beispiel.de', 'admin')
+  ('luca.amthor@solarsale24.com', 'admin'),
+  ('velobagg@gmail.com', 'admin')
 on conflict (email) do nothing;

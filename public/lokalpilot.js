@@ -1,4 +1,4 @@
-/* Lokalpilot – App-Logik (Prototyp-Stand V10). Spricht über window.claude.use(...) mit Supabase und der KI-Route. */
+/* Lokalpilot – App-Logik. Spricht über window.claude.use(...) mit Supabase und der KI-Route. */
 (() => {
   // ================= Stammdaten =================
   const KATEGORIEN = ["Wärmepumpe", "PV", "Altenpflege", "Sammelanzeige"];
@@ -26,7 +26,7 @@
   const TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
   const TAG_IDX = { "Sonntag": 0, "Montag": 1, "Dienstag": 2, "Mittwoch": 3, "Donnerstag": 4, "Freitag": 5, "Samstag": 6 };
   const PAGES = {
-    auswertung: ["Analytics", "Was jede Anzeige kostet und bringt, was das Lern-Modell daraus ableitet und was als Nächstes getestet werden sollte."],
+    auswertung: ["Analytics", "Lokal günstiger erreichen als auf Meta: was jede Anzeige kostet und bringt, was das Lern-Modell daraus ableitet und was als Nächstes getestet werden sollte."],
     kampagnen: ["Kampagnen", "Neue Kampagne mit einem Klick. Der Agent plant, textet, legt Anzeigen an und gibt sie im Limit frei."],
     anzeigen: ["Anzeigen", "Alle Motive als Druckvorschau, jede mit eigenem Tracking-Code."],
     studio: ["KI-Studio", "Neue Anzeigen im Hausstil, mit Viral-Bausteinen und fertigem Bild-Prompt."],
@@ -109,6 +109,8 @@
   function adStats(a) { const s = statCache.get(a.id) || { kontakte: 0, leads: 0, erloes: 0, verkauft: 0 }; const kosten = num(a.kosten); return { ...s, kosten, cpl: s.leads ? kosten / s.leads : null }; }
   // ================= Kosten: Zeitung + KI (Tokens, Bild-Credits) =================
   const KI_DEF = { inMTok: 3, outMTok: 15, creditEur: 0.10, creditsBild: 0.5 };
+  const META_CPM = 9; // Richtwert Meta Deutschland 2026, ca. 8–11 $ bzw. 5–15 € je 1.000 Impressionen (Q4 teurer)
+  const metaCpm = () => num(S.settings.metaCpm) || META_CPM;
   const kiP = () => ({ ...KI_DEF, ...(S.settings.kiPreise || {}) });
   const tok = (x) => Math.ceil(String(typeof x === "string" ? x : JSON.stringify(x ?? "")).length / 4);
   const tokEur = (l) => (num(l.tin) * num(kiP().inMTok) + num(l.tout) * num(kiP().outMTok)) / 1e6;
@@ -388,6 +390,15 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
     const max = Math.max(1, ...rows.map((r) => r.v));
     return `<div class="bars">${rows.map((r) => `<div class="barrow" title="${esc(r.k)}: ${r.v} ${unit}"><div class="lbl">${esc(r.k)}</div><div class="track"><div class="fill" style="width:${r.v ? Math.max(2, (r.v / max) * 100) : 0}%"></div></div><div class="val">${r.v}</div></div>`).join("")}</div>`;
   }
+  function renderCpm(ads) {
+    const g = new Map(); ads.forEach((a) => { const b = blattById(a.blattId); const auf = num(b?.auflage); if (!auf || !num(a.kosten)) return; const k = b.name; const x = g.get(k) || { kosten: 0, auf: 0, n: 0, demo: b.demo }; x.kosten += num(a.kosten); x.auf += auf; x.n++; g.set(k, x); });
+    const rows = [...g].map(([k, x]) => ({ k, cpm: x.kosten / (x.auf / 1000), n: x.n, demo: x.demo })).sort((a, b) => a.cpm - b.cpm);
+    const meta = metaCpm(); const max = Math.max(meta, ...rows.map((r) => r.cpm)) * 1.1;
+    if (!rows.length) { $("cpmx").innerHTML = `<p class="hint">Sobald Anzeigen mit Kosten erschienen sind und die Auflage der Blätter eingetragen ist, steht hier der Vergleich.</p>`; return; }
+    const bar = (lbl, sub, v, cls) => `<div class="barrow"><div class="lbl">${lbl}<div class="muted">${sub}</div></div><div class="track"><div class="fill ${cls}" style="width:${Math.max(2, v / max * 100)}%"></div></div><div class="val">${eur2(v)}</div></div>`;
+    const guenstiger = rows.filter((r) => r.cpm < meta).length;
+    $("cpmx").innerHTML = `<div class="bars">${rows.map((r) => bar(esc(r.k) + (r.demo ? ` <span class="chip demo">Beispiel</span>` : ""), `${r.n} Schaltung${r.n > 1 ? "en" : ""} · je 1.000 Exemplare`, r.cpm, r.cpm < meta ? "best" : "")).join("")}${bar("<b>Meta</b> (Facebook/Instagram)", "Richtwert je 1.000 Einblendungen, anpassbar", meta, "meta")}</div><p class="hint" style="margin-top:10px">${guenstiger} von ${rows.length} Blättern liegen unter dem Meta-Richtwert. Achtung, kein 1:1-Vergleich: Auflage heißt gedruckt und verteilt, nicht gelesen. Darum zählt am Ende die Kennzahl Kosten pro Lead.</p>`;
+  }
   function renderKosten(kf) {
     const kamps = (kf ? [kampById(kf)].filter(Boolean) : KP()).map((k) => { const ads = A().filter((a) => a.kampagneId === k.id); const c = costOf(ads, [k], false); const leads = ads.reduce((x, a) => x + adStats(a).leads, 0); return { k, c, leads }; }).sort((x, y) => y.c.gesamt - x.c.gesamt);
     const allg = kf ? null : costOf([], [], true); const lose = kf ? null : costOf(A().filter((a) => !a.kampagneId), [], false);
@@ -409,13 +420,14 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
       { k: "Geschaltet", v: int(ads.length), s: `von ${int(all.length)} Anzeigen` },
       { k: "Kosten gesamt", v: eur(kosten), s: `Zeitung ${eur(zeit)} · KI ${eur2(cost.ki)}` },
       { k: "Reichweite", v: reich >= 1e6 ? (reich / 1e6).toLocaleString("de-DE", { maximumFractionDigits: 1 }) + " Mio." : int(reich), s: reich && kontakte ? `${(kontakte / reich * 1e4).toLocaleString("de-DE", { maximumFractionDigits: 1 })} Kontakte je 10.000 HH` : "Haushalte (Auflage)" },
+      { k: "CPM (je 1.000 Auflage)", v: reich ? eur2(zeit / (reich / 1000)) : "—", s: `Meta-Richtwert ≈ ${eur2(metaCpm())} je 1.000 Einblendungen` },
       { k: "Kontakte", v: int(kontakte), s: kosten && kontakte ? `${eur(kosten / kontakte)} je Kontakt` : "noch keine" },
       { k: "Qualifizierte Leads", v: int(leads), s: kontakte ? `${pct(leads / kontakte)} der Kontakte` : "—" },
       { k: "Kosten pro Lead", v: cpl == null ? "—" : eur(cpl), s: "Gesamtkosten ÷ Leads", hl: true },
       { k: "Deckungsbeitrag", v: eur(erloes - kosten), s: `Erlös ${eur(erloes)} · ${verkauft} verkauft` },
     ].map((t) => `<div class="tile${t.hl ? " hl" : ""}"><div class="k">${t.k}</div><div class="v">${t.v}</div><div class="s">${t.s}</div></div>`).join("");
     $("kpi-note").textContent = ads.length ? "" : "Zählt erst, wenn eine Anzeige den Status „erschienen“ hat.";
-    renderKosten(kf);
+    renderKosten(kf); renderCpm(ads);
 
     // Insights
     const model = trainModel(A());
@@ -507,7 +519,7 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
     if (btn.dataset.act === "kaus") { $("aw-kampagne").value = k.id; showTab("auswertung"); }
     if (btn.dataset.act === "kfrei") { const ok = await write(() => db.collection("kampagnen").doc(k.id).update({ status: "Freigegeben", freigegebenAm: Date.now() }), `${k.name} freigegeben`); if (ok) for (const a of S.anzeigen.filter((x) => x.kampagneId === k.id && x.status === "geplant")) await write(() => db.collection("anzeigen").doc(a.id).update({ status: "freigegeben" })); }
   });
-  $("auto-form").addEventListener("submit", async (e) => { e.preventDefault(); await write(() => db.doc("einstellungen/allgemein").set({ ...S.settings, marke: $("s-marke").value.trim(), limit: $("s-limit").value === "" ? null : num($("s-limit").value), erloes: $("s-erloes").value === "" ? null : num($("s-erloes").value), kiPreise: { ...kiP(), inMTok: num($("s-kin").value) || KI_DEF.inMTok, outMTok: num($("s-kout").value) || KI_DEF.outMTok, creditEur: $("s-credit").value === "" ? KI_DEF.creditEur : num($("s-credit").value) } }), "Gespeichert"); });
+  $("auto-form").addEventListener("submit", async (e) => { e.preventDefault(); await write(() => db.doc("einstellungen/allgemein").set({ ...S.settings, marke: $("s-marke").value.trim(), limit: $("s-limit").value === "" ? null : num($("s-limit").value), erloes: $("s-erloes").value === "" ? null : num($("s-erloes").value), kiPreise: { ...kiP(), inMTok: num($("s-kin").value) || KI_DEF.inMTok, outMTok: num($("s-kout").value) || KI_DEF.outMTok, creditEur: $("s-credit").value === "" ? KI_DEF.creditEur : num($("s-credit").value) }, metaCpm: $("s-metacpm").value === "" ? null : num($("s-metacpm").value) }), "Gespeichert"); });
 
   // Hausstil-Bildprompt nach Referenz-Doku
   function bildPrompt(m, ad) {
@@ -820,6 +832,7 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
       $("crumb").textContent = marke(); $("side-marke").textContent = "Marke: " + marke();
       for (const [id, key] of [["s-marke", "marke"], ["s-limit", "limit"], ["s-erloes", "erloes"], ["s-url", "basisUrl"], ["s-wa", "waNummer"]]) if (document.activeElement !== $(id)) $(id).value = S.settings[key] ?? "";
       for (const [id, key] of [["s-kin", "inMTok"], ["s-kout", "outMTok"], ["s-credit", "creditEur"]]) if (document.activeElement !== $(id)) $(id).value = kiP()[key];
+      if (document.activeElement !== $("s-metacpm")) $("s-metacpm").value = metaCpm();
       schedule();
     }, onErr);
   });

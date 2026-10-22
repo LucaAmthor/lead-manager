@@ -1,6 +1,6 @@
 # Lokalpilot
 
-Kampagnen auf Autopilot: KI-Agenten planen, texten und tracken Anzeigen in Wochenblättern (erste Marke: Modernisieren24) und lernen aus jedem Test.
+Lokale Kampagnen auf Autopilot. Die Idee: Kleine, lokale Wochenblätter erreichen 1.000 Haushalte oft günstiger als Meta 1.000 Einblendungen. KI-Agenten planen, texten und tracken Anzeigen in Wochenblättern (erste Marke: Modernisieren24) und lernen aus jedem Test.
 
 - **Frontend + Server:** Next.js auf Vercel
 - **Daten, Login, Bilder:** Supabase (Tabellen `lp_*`, Bucket `lp-bilder`)
@@ -8,7 +8,7 @@ Kampagnen auf Autopilot: KI-Agenten planen, texten und tracken Anzeigen in Woche
 
 ## Einrichten
 
-1. **Supabase → SQL Editor:** `supabase/01_schema.sql` ausführen, danach `supabase/02_daten.sql` (übernimmt die Daten aus dem Prototyp).
+1. **Supabase → SQL Editor:** `supabase/01_schema.sql` ausführen. Die Daten aus dem Prototyp übernimmt ein Admin nach dem ersten Login per Klick (oder per `supabase/02_daten.sql`).
    Weitere Mitglieder: `insert into lp_members (email, rolle) values ('name@firma.de', 'mitglied');`
 2. **Supabase → Authentication → URL Configuration:** Site URL = Vercel-Adresse (z. B. `https://lokalpilot.vercel.app`), unter Redirect URLs `https://<adresse>/auth/callback` eintragen.
 3. **Vercel → Projekt importieren** (Framework wird als Next.js erkannt) und die Variablen aus `.env.example` eintragen. Danach Deploy.

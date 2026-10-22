@@ -2,7 +2,7 @@ import "./globals.css";
 
 export const metadata = {
   title: "Lokalpilot",
-  description: "Kampagnen auf Autopilot: Wochenblatt-Anzeigen planen, tracken und daraus lernen.",
+  description: "Lokale Kampagnen auf Autopilot: Wochenblatt-Anzeigen planen, tracken und daraus lernen.",
 };
 
 export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
