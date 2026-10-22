@@ -211,7 +211,8 @@
     ] },
     { id: "p4", name: "Automatisieren", gate: "Läuft ohne Handarbeit", tasks: [
       { id: "server", t: "Lokalpilot auf eigenem Server", manual: true },
-      { id: "buchung", t: "Buchungs-Agent bucht selbst", manual: true },
+      { id: "buchung", t: "KI-Agenten entscheiden und buchen Anzeigen bei den Zeitungen selbstständig (ohne Eingreifen, im Limit)", manual: true },
+      { id: "agent-entscheidet", t: "Agent wählt Blatt, Termin, Motiv und Budget allein aus dem Lern-Modell", manual: true },
       { id: "bilder", t: "Bild-Agent erzeugt Motive selbst", manual: true },
       { id: "video", t: "Videos für digitale Kanäle", manual: true },
     ] },
