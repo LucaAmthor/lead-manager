@@ -1,8 +1,24 @@
 /* Lokalpilot – App-Logik. Spricht über window.claude.use(...) mit Supabase und der KI-Route. */
 (() => {
   // ================= Stammdaten =================
-  const KATEGORIEN = ["Wärmepumpe", "PV", "Altenpflege", "Sammelanzeige"];
-  const KAT_KURZ = { "Wärmepumpe": "WP", "PV": "PV", "Altenpflege": "AP", "Sammelanzeige": "SA" };
+  // Top 10 Lead-Kategorien (Zielgruppe Hausbesitzer 50+, hoher Auftragswert). Angelehnt an Vergleichsportale, eigene Auswahl.
+  const KAT_INFO = {
+    "Wärmepumpe": { k: "WP", anbieter: "Fachbetriebe für Wärmepumpen" },
+    "PV": { k: "PV", anbieter: "Solar-Fachbetriebe", name: "Solaranlage (PV)" },
+    "Altenpflege": { k: "AP", anbieter: "Pflegedienste", name: "Pflege zu Hause" },
+    "Heizung": { k: "HZ", anbieter: "Heizungsbauer" },
+    "Badsanierung": { k: "BD", anbieter: "Badsanierer" },
+    "Treppenlift": { k: "TL", anbieter: "Treppenlift-Anbieter" },
+    "Küche": { k: "KU", anbieter: "Küchenstudios" },
+    "Fenster & Türen": { k: "FE", anbieter: "Fenster- und Türenbauer" },
+    "Dach & Dämmung": { k: "DA", anbieter: "Dachdecker und Dämmprofis" },
+    "Immobilie verkaufen": { k: "IM", anbieter: "Immobilienmakler" },
+  };
+  const LEAD_KATS = Object.keys(KAT_INFO);
+  const CORE_KATS = ["Wärmepumpe", "PV", "Altenpflege"];
+  const KATEGORIEN = [...LEAD_KATS, "Sammelanzeige"];
+  const KAT_KURZ = { ...Object.fromEntries(LEAD_KATS.map((k) => [k, KAT_INFO[k].k])), "Sammelanzeige": "SA" };
+  const katListe = () => LEAD_KATS.map((k) => `${k} (Anbieter: ${KAT_INFO[k].anbieter})`).join(", ");
   const BOTSCHAFTEN = ["Frist / Förderung", "Kostenfrage", "Emotion", "Ratgeber-Köder", "Lokales Vertrauen"];
   const TOENE = ["Seriös", "Sachlich", "Emotional", "Humor", "Ironisch", "Provokant", "Nostalgisch", "Lokalstolz"];
   const VIRAL = [
@@ -284,7 +300,7 @@
     if (!sample || !db) { toast("Der Agent ist hier nicht verfügbar."); return; }
     const ids = (blaetter || realBlaetter()).map((b) => b.id); if (!ids.length) { toast("Zuerst ein echtes Wochenblatt anlegen."); showTab("blaetter"); return; }
     showTab("kampagnen"); fillSelects();
-    $("kw-name").value = name; setChecks($("kw-blaetter"), ids); setChecks($("kw-kat"), kats || ["Wärmepumpe", "PV", "Altenpflege"]);
+    $("kw-name").value = name; setChecks($("kw-blaetter"), ids); setChecks($("kw-kat"), kats || CORE_KATS);
     $("kw-viral").value = viral || "Agent wählt"; $("kw-ton").value = ton || $("kw-ton").value;
     if (!num($("kw-budget").value)) $("kw-budget").value = num(S.settings.limit) || 2000;
     $("kw-hinweis").value = hinweis || ""; $("kw-form").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -293,7 +309,7 @@
   function bestRealCombo() {
     const model = trainModel(A()); if (!model) return null; const st = realStaedte(); if (!st.length) return null;
     const tested = new Set(S.anzeigen.filter((a) => !a.demo && geschaltet(a)).map((a) => [a.kategorie, a.viral || "Klassisch", stadtOf(a)].join("|")));
-    const out = []; for (const kat of ["Wärmepumpe", "PV", "Altenpflege"]) for (const v of model.f.viral.keys()) for (const s of st) { if (tested.has([kat, v, s].join("|"))) continue; const p = predict(model, { kategorie: kat, viral: v, stadt: s }); if (p.cpl) out.push({ kat, v, st: s, cpl: p.cpl, conf: p.conf }); }
+    const out = []; for (const kat of [...new Set([...CORE_KATS, ...model.f.kategorie.keys()])].filter((k) => KAT_INFO[k])) for (const v of model.f.viral.keys()) for (const s of st) { if (tested.has([kat, v, s].join("|"))) continue; const p = predict(model, { kategorie: kat, viral: v, stadt: s }); if (p.cpl) out.push({ kat, v, st: s, cpl: p.cpl, conf: p.conf }); }
     return out.sort((a, b) => a.cpl - b.cpl)[0] || null;
   }
 
@@ -308,7 +324,7 @@
       actBusy("Abnehmer und Preis je Lead", "Die KI erstellt einen Plan für Abnehmer und Lead-Preise …");
       try {
         const st = realStaedte().join(", ") || "Salzgitter";
-        const r = await aiJson(`Du berätst eine kleine Lead-Plattform (Marke ${marke()}). Leser von Wochenblättern in ${st} und Umgebung fragen kostenlos 3 Angebote an. Die Leads werden an regionale Anbieter verkauft (je Lead an bis zu 3 Anbieter). Kategorien: Wärmepumpe, PV, Altenpflege (ambulante Pflege zu Hause).
+        const r = await aiJson(`Du berätst eine kleine Lead-Plattform (Marke ${marke()}). Leser von Wochenblättern in ${st} und Umgebung fragen kostenlos 3 Angebote an. Die Leads werden an regionale Anbieter verkauft (je Lead an bis zu 3 Anbieter). Kategorien: ${katListe()}.
 Erstelle je Kategorie: passende Abnehmer-Typen (keine erfundenen Firmennamen), konkrete Wege, sie in der Region zu finden, ein Preismodell und eine realistische Preisspanne je Lead in Euro (pro Abnehmer, netto) mit einem Startpreis-Vorschlag. Markiere Preise als Schätzung. Dazu eine kurze, freundliche Erst-E-Mail an einen Fachbetrieb (Sie-Form, max. 120 Wörter, ohne Übertreibungen).
 Antworte nur mit JSON: {"kategorien":[{"kategorie":"Wärmepumpe","abnehmer":["..."],"finden":["..."],"modell":"...","preisVon":0,"preisBis":0,"startpreis":0,"begruendung":"1 Satz"}],"anschreiben":"..."}`, "Abnehmer-Plan");
         const ks = Array.isArray(r?.kategorien) ? r.kategorien : []; if (!ks.length) throw { code: "invalid_json" };
@@ -321,7 +337,7 @@ Antworte nur mit JSON: {"kategorien":[{"kategorie":"Wärmepumpe","abnehmer":["..
     einwilligung: { a: "Entwürfe schreiben", run: async () => {
       actBusy("Einwilligung und Datenschutz", "Die KI schreibt Entwürfe für Einwilligung und Datenschutzhinweis …");
       try {
-        const r = await aiJson(`Schreibe Entwürfe für eine deutsche Lead-Plattform (Marke ${marke()}): Interessenten melden sich per Telefon, WhatsApp oder Website und möchten bis zu 3 Angebote regionaler Anbieter (Wärmepumpe, PV, ambulante Pflege). Ihre Kontaktdaten werden dafür an bis zu 3 Anbieter weitergegeben.
+        const r = await aiJson(`Schreibe Entwürfe für eine deutsche Lead-Plattform (Marke ${marke()}): Interessenten melden sich per Telefon, WhatsApp oder Website und möchten bis zu 3 Angebote regionaler Anbieter (z. B. Wärmepumpe, Solaranlage, Heizung, Bad, Küche, Treppenlift, Pflege zu Hause, Immobilienverkauf). Ihre Kontaktdaten werden dafür an bis zu 3 Anbieter weitergegeben.
 1) einwilligungTelefon: Satz, den der Mitarbeiter am Telefon vorliest und bestätigen lässt. 2) einwilligungWeb: Checkbox-Text fürs Formular. 3) datenschutz: kurzer Datenschutzhinweis (Zweck, Empfänger, Speicherdauer, Widerruf, Rechte), mit Platzhaltern in [eckigen Klammern] für Firmendaten. 4) pruefpunkte: Liste, was ein Anwalt prüfen sollte.
 Klar, kurz, DSGVO-orientiert, kein Rechtsrat. Antworte nur mit JSON: {"einwilligungTelefon":"...","einwilligungWeb":"...","datenschutz":"...","pruefpunkte":["..."]}`, "Einwilligungs-Entwürfe");
         if (!r?.einwilligungWeb) throw { code: "invalid_json" };
@@ -363,7 +379,7 @@ Klar, kurz, DSGVO-orientiert, kein Rechtsrat. Antworte nur mit JSON: {"einwillig
       const model = trainModel(A()); const best = model ? Object.fromEntries(FEATS.map(([n]) => [n, [...model.f[n]].sort((x, y) => y[1].factor - x[1].factor).slice(0, 3).map(([v, e]) => `${v} ${e.factor.toFixed(2)}x (${e.weight > .5 ? "sicher" : "unsicher"})`)])) : null;
       const ph = currentPhase(); const offen = ph.tasks.filter((t) => !taskDone(t)).map((t) => t.t);
       const bisher = (S.settings.ideen || []).map((x) => x.titel + (x.verworfen ? " (verworfen)" : x.done ? " (erledigt)" : " (offen)"));
-      const r = await aiJson(`Du bist der Strategie-Agent von Lokalpilot. Lokalpilot plant Print-Anzeigen in kostenlosen Wochenblättern für die Marke ${marke()} (Leser bekommen kostenlos 3 Angebote: Wärmepumpe, PV, Altenpflege; Leads werden an regionale Anbieter verkauft). Ziel: Kosten pro Lead senken, Reichweite ausbauen, mit jedem Test lernen.
+      const r = await aiJson(`Du bist der Strategie-Agent von Lokalpilot. Lokalpilot plant Print-Anzeigen in kostenlosen Wochenblättern für die Marke ${marke()} (Leser bekommen kostenlos 3 Angebote in den Kategorien ${LEAD_KATS.join(", ")}; bisher Fokus auf ${CORE_KATS.join(", ")}; Leads werden an regionale Anbieter verkauft). Ziel: Kosten pro Lead senken, Reichweite ausbauen, mit jedem Test lernen.
 Stand: Phase „${ph.name}“, offene Aufgaben: ${JSON.stringify(offen)}. Echte Blätter/Städte: ${JSON.stringify(realBlaetter().map((b) => b.name + " (" + b.stadt + ")"))}. Echte Kampagnen: ${S.kampagnen.filter((x) => !x.demo).length}, echte Anzeigen: ${real.length}, davon geschaltet ${ges.length}, Kosten ${Math.round(k.kosten)} €, Kontakte ${k.kontakte}, Leads ${k.leads}.
 Lern-Modell (Faktoren Leads pro Euro, inkl. Beispieldaten falls eingeblendet): ${JSON.stringify(best)}.
 Viral-Bausteine: ${VIRAL.map((v) => v.id).join(", ")}. Töne: ${TOENE.join(", ")}.
@@ -477,7 +493,7 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
     const staedte = [...new Set(B().map((b) => b.stadt))];
     const virals = [...model.f.viral.keys()];
     const cand = [];
-    for (const kat of ["Wärmepumpe", "PV", "Altenpflege"]) for (const v of virals) for (const st of staedte) {
+    for (const kat of [...new Set([...CORE_KATS, ...model.f.kategorie.keys()])].filter((k) => KAT_INFO[k])) for (const v of virals) for (const st of staedte) {
       if (tested.has([kat, v, st].join("|"))) continue;
       const p = predict(model, { kategorie: kat, viral: v, stadt: st });
       cand.push({ kat, v, st, ...p, score: p.rate * (1 + 0.25 * (1 - p.conf)) });
@@ -541,7 +557,7 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
   }
   function erscheinungstermine(b, von, bis) { const out = []; const ti = TAG_IDX[b.tag]; if (ti == null) return out; for (let t = Date.parse(von); t <= Date.parse(bis); t += 864e5) { const d = new Date(t); if (d.getUTCDay() === ti) out.push(d.toISOString().slice(0, 10)); } return out; }
   function sampleErr(err) { const c = err && err.code; if (c === "cancelled") return "Abgebrochen."; if (["not_granted", "sampling_disabled", "not_declared", "capability_disabled"].includes(c)) return "Die KI ist für diese Ansicht nicht freigegeben."; if (c === "rate_limited") return "Gerade zu viele Anfragen. Bitte in ein paar Minuten nochmal."; if (c === "invalid_json") return "Die Antwort war nicht lesbar. Bitte nochmal versuchen."; if (c === "refused") return "Die KI hat das abgelehnt. Hinweise anpassen."; return "Die KI war nicht erreichbar. Bitte nochmal versuchen."; }
-  const RULES = `Regeln für Texte: Deutsch, Sie-Form, Zielgruppe 50+, kurze Wörter. Headline höchstens 9 Wörter. Unterzeile nennt "3 Angebote" und "Fachbetriebe/Pflegedienste aus <Stadt> und Umgebung". Genau 3 kurze Häkchen (z. B. "Kostenlos & unverbindlich", "Fachbetriebe aus Ihrer Region", dritter je Kategorie). Keine erfundenen Zahlen, Fristen, Förderquoten, Preise, Testsiegel oder Kundenstimmen. Pflege: Humor nur liebevoll, nie auf Kosten der Betroffenen. Format-Parodien als ANZEIGE kennzeichnen. Keine Telefonnummern oder Links im Text.`;
+  const RULES = `Regeln für Texte: Deutsch, Sie-Form, Zielgruppe 50+, kurze Wörter. Headline höchstens 9 Wörter. Unterzeile nennt "3 Angebote" und die passenden Anbieter aus <Stadt> und Umgebung (siehe Kategorie, z. B. "Küchenstudios aus Peine und Umgebung"). Genau 3 kurze Häkchen (z. B. "Kostenlos & unverbindlich", "Fachbetriebe aus Ihrer Region", dritter je Kategorie). Keine erfundenen Zahlen, Fristen, Förderquoten, Preise, Testsiegel oder Kundenstimmen. Pflege: Humor nur liebevoll, nie auf Kosten der Betroffenen. Format-Parodien als ANZEIGE kennzeichnen. Keine Telefonnummern oder Links im Text.`;
   const viralText = VIRAL.map((v) => `${v.id}: ${v.d}`).join("\n");
 
   let kwCtl = null;
@@ -562,7 +578,7 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
     if (!bl.some((b) => b.termine.length)) { toast("Im Zeitraum erscheint keines der Blätter."); return; }
     const bib = motive === "neu" ? [] : S.anzeigen.filter((a) => !a.demo && a.motiv && kats.includes(a.kategorie)).map((a) => ({ code: a.code, kategorie: a.kategorie, ton: a.ton, viral: a.viral, headline: a.motiv.headline, kontakte: adStats(a).kontakte, leads: adStats(a).leads }));
     const model = trainModel(A()); const prog = model ? bl.flatMap((b) => kats.map((k) => VIRAL.map((v) => ({ stadt: b.stadt, kategorie: k, viral: v.id, cplPrognose: Math.round(predict(model, { kategorie: k, viral: v.id, stadt: b.stadt }).cpl || 0) })))).flat().sort((x, y) => x.cplPrognose - y.cplPrognose).slice(0, 12) : [];
-    const prompt = `Du bist der Kampagnen-Agent von Lokalpilot. Du planst Print-Anzeigen in kostenlosen Wochenblättern für die Marke ${marke()} (Vermittlung: Leser bekommen kostenlos 3 Angebote von Fachbetrieben bzw. Pflegediensten aus der Region).
+    const prompt = `Du bist der Kampagnen-Agent von Lokalpilot. Du planst Print-Anzeigen in kostenlosen Wochenblättern für die Marke ${marke()} (Vermittlung: Leser bekommen kostenlos 3 Angebote passender Anbieter aus der Region). Kategorien und Anbieter: ${katListe()}.
 Kampagne: ${$("kw-name").value.trim()} · Kategorien: ${kats.join(", ")} · Ton: ${ton} · Viral-Baustein: ${viral} · Zeitraum ${von} bis ${bis} · Budget gesamt netto ${budget} € · Motive: ${motive === "alt" ? "nur vorhandene wiederverwenden" : motive === "neu" ? "nur neue texten" : "vorhandene wiederverwenden, wo passend, sonst neue texten"}.
 Hinweise: ${$("kw-hinweis").value.trim() || "keine"}
 Blätter mit Erscheinungsterminen (nur diese Termine, je Blatt und Termin höchstens eine Anzeige): ${JSON.stringify(bl)}
@@ -610,7 +626,7 @@ Antworte nur mit JSON: {"zusammenfassung":"2 Sätze","platzierungen":[{"blattId"
     if (!db) { toast("Datenbank nicht verbunden."); return; }
     const b = blattById($("st-blatt").value); if (!b) { toast("Bitte ein Blatt wählen."); return; }
     const kat = $("st-kategorie").value, ton = $("st-ton").value, viral = $("st-viral").value, layout = $("st-layout").value, nAnz = num($("st-anzahl").value) || 3;
-    const prompt = `Du textest Print-Anzeigen für kostenlose Wochenblätter für die Marke ${marke()} (Vermittlung: 3 kostenlose Angebote von Fachbetrieben bzw. Pflegediensten aus der Region).
+    const prompt = `Du textest Print-Anzeigen für kostenlose Wochenblätter für die Marke ${marke()} (Vermittlung: 3 kostenlose Angebote passender Anbieter aus der Region). Anbieter für diese Kategorie: ${KAT_INFO[kat]?.anbieter || "Fachbetriebe"}.
 Stadt: ${b.stadt} · Kategorie: ${kat} · Ton: ${ton} · Viral-Baustein: ${viral}${layout !== "auto" ? ` · Layout: ${layout}` : ""}.
 Idee/Figur: ${$("st-hinweis").value.trim() || "frei"}
 Viral-Bausteine:
@@ -806,7 +822,7 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
   $("a-kontaktwege").innerHTML = checks("akw", KANAELE, ["Telefon", "URL"]);
   $("a-status").innerHTML = options(STATUS, "geplant"); $("ad-filter").innerHTML += options(STATUS);
   $("k-kanal").innerHTML = options(KONTAKT_KANAELE); $("b-tag").innerHTML = options(["—", ...TAGE]);
-  $("kw-kat").innerHTML = checks("kwk", ["Wärmepumpe", "PV", "Altenpflege"], ["Wärmepumpe", "PV", "Altenpflege"]);
+  $("kw-kat").innerHTML = checks("kwk", LEAD_KATS.map((k) => ({ value: k, label: KAT_INFO[k].name || k })), CORE_KATS);
   $("k-datum").value = todayISO();
   { const t = Date.now(); $("kw-von").value = isoLocal(new Date(t + 14 * 864e5)); $("kw-bis").value = isoLocal(new Date(t + 70 * 864e5)); }
   showDemo = lsGet("lp-demo", true); $("demo-toggle").checked = showDemo;
