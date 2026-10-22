@@ -10,6 +10,7 @@ export default function Lokalpilot({ email }) {
   useEffect(() => {
     if (window.__lpGeladen) return;
     window.__lpGeladen = true;
+    window.__lpServer = true;
     const sb = createClient();
     window.claude = { use: async (name) => (name === "db" ? makeDb(sb) : name === "sample" ? sample : name === "assets" ? makeAssets(sb) : null) };
     const s = document.createElement("script");

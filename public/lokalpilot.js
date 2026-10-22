@@ -138,7 +138,7 @@
   const zeitungKosten = (a) => (geschaltet(a) || a.status === "gebucht") ? num(a.kosten) : 0;
   function costOf(ads, kamps, mitAllgemein) {
     const c = { zeitung: 0, kiText: 0, kiBild: 0, tokens: 0, credits: 0 };
-    ads.forEach((a) => { c.zeitung += zeitungKosten(a); c.kiText += logsEur(a.kiKosten); c.tokens += logsTok(a.kiKosten); const cr = bildCredits(a); c.credits += cr; c.kiBild += cr * num(kiP().creditEur); });
+    ads.forEach((a) => { c.zeitung += zeitungKosten(a); c.kiText += logsEur(a.kiKosten); c.tokens += logsTok(a.kiKosten); if (a.motiv?.bildEur != null) { c.kiBild += num(a.motiv.bildEur); c.bilderApi = (c.bilderApi || 0) + 1; return; } const cr = bildCredits(a); c.credits += cr; c.kiBild += cr * num(kiP().creditEur); });
     kamps.forEach((k) => { c.kiText += logsEur(k.kiKosten); c.tokens += logsTok(k.kiKosten); });
     if (mitAllgemein) { c.kiText += logsEur(S.settings.kiLog); c.tokens += logsTok(S.settings.kiLog); }
     c.ki = c.kiText + c.kiBild; c.gesamt = c.zeitung + c.ki; return c;
@@ -514,6 +514,63 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
     const tot = c.gesamt || 1; const w = (v) => Math.max(v > 0 ? 1.5 : 0, v / tot * 100);
     return `<div class="kcost"><div class="kcbar" aria-hidden="true"><i class="z" style="width:${w(c.zeitung)}%"></i><i class="t" style="width:${w(c.kiText)}%"></i><i class="p" style="width:${w(c.kiBild)}%"></i></div><div class="kclegend"><span><i class="z"></i>Zeitung <b>${eur(c.zeitung)}</b></span><span><i class="t"></i>KI-Texte <b>${eur2(c.kiText)}</b> · ${int(c.tokens)} Tokens</span><span><i class="p"></i>KI-Bilder <b>${eur2(c.kiBild)}</b> · ${c.credits.toLocaleString("de-DE")} Credits</span></div></div>`;
   }
+  // ZIP ohne Kompression (JPGs sind schon komprimiert)
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = (u8) => { let c = 0xffffffff; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  function makeZip(files) {
+    const enc = new TextEncoder(); const parts = []; const central = []; let off = 0;
+    for (const f of files) {
+      const name = enc.encode(f.name); const crc = crc32(f.data); const sz = f.data.length;
+      const h = new DataView(new ArrayBuffer(30)); h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint32(14, crc, true); h.setUint32(18, sz, true); h.setUint32(22, sz, true); h.setUint16(26, name.length, true);
+      parts.push(new Uint8Array(h.buffer), name, f.data);
+      const c = new DataView(new ArrayBuffer(46)); c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint32(16, crc, true); c.setUint32(20, sz, true); c.setUint32(24, sz, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+      central.push(new Uint8Array(c.buffer), name); off += 30 + name.length + sz;
+    }
+    const cdSize = central.reduce((x, p) => x + p.length, 0);
+    const e = new DataView(new ArrayBuffer(22)); e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cdSize, true); e.setUint32(16, off, true);
+    return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: "application/zip" });
+  }
+  const slug = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "kampagne";
+  async function bilderZip(k, btn) {
+    const ads = A().filter((a) => a.kampagneId === k.id && a.motiv?.bildUrl).sort((x, y) => String(x.code).localeCompare(String(y.code)));
+    if (!ads.length) { toast("Diese Kampagne hat noch keine Bilder."); return; }
+    const alt = btn.textContent; btn.disabled = true; btn.textContent = `Lade 0/${ads.length} …`;
+    try {
+      const files = []; let i = 0;
+      for (const a of ads) {
+        const r = await fetch(a.motiv.bildUrl); if (!r.ok) throw new Error("bild");
+        const type = r.headers.get("content-type") || ""; const ext = /png/.test(type) ? "png" : /webp/.test(type) ? "webp" : "jpg";
+        files.push({ name: `${a.code}_${slug(a.motiv.headline)}.${ext}`, data: new Uint8Array(await r.arrayBuffer()) });
+        btn.textContent = `Lade ${++i}/${ads.length} …`;
+      }
+      const blob = makeZip(files); const filename = `${slug(k.name)}_bilder.zip`;
+      const dl = window.claude && typeof window.claude.use === "function" ? await window.claude.use("downloads").catch(() => null) : null;
+      if (dl) { try { await dl.save({ filename, data: blob }); } catch (e) { if (e?.code !== "declined") toast("Herunterladen ist hier nicht möglich."); } }
+      else { const url = URL.createObjectURL(blob); const el = document.createElement("a"); el.href = url; el.download = filename; document.body.appendChild(el); el.click(); el.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000); }
+      toast(`${files.length} Bilder als ZIP bereit`);
+    } catch (e) { toast("Bilder konnten nicht geladen werden."); }
+    finally { btn.disabled = false; btn.textContent = alt; }
+  }
+  // Bild-Agent (nur in der Server-Version von Lokalpilot verfügbar)
+  const bildServer = () => !!window.__lpServer;
+  const braucheBild = (a) => !a.demo && a.motiv && !a.motiv.bildUrl;
+  const BILD_FEHLER = { capability_disabled: "Higgsfield-Schlüssel fehlt in Vercel.", kein_guthaben: "Higgsfield-Guthaben ist leer – bitte aufladen.", rate_limited: "Higgsfield ist gerade ausgelastet, gleich nochmal.", bild_nsfw: "Higgsfield hat das Motiv abgelehnt – Bildidee anpassen.", timeout: "Das Bild braucht zu lange – bitte nochmal versuchen." };
+  async function bildErzeugen(a) {
+    const r = await fetch("/api/bild", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ anzeigeId: a.id, prompt: a.motiv.bildPrompt || bildPrompt(a.motiv, a) }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(BILD_FEHLER[j.code] || "Bild konnte nicht erzeugt werden.");
+    return j.url;
+  }
+  async function bildButton(a, btn) {
+    const alt = btn.textContent; btn.disabled = true; btn.textContent = "Bild entsteht … (ca. 1 Min.)";
+    try { await bildErzeugen(a); toast(`Bild für ${a.code} fertig`); } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = alt; }
+  }
+  async function bilderKampagne(k, btn) {
+    const ads = S.anzeigen.filter((a) => a.kampagneId === k.id && braucheBild(a)); if (!ads.length) return;
+    const alt = btn.textContent; btn.disabled = true; let ok = 0;
+    for (const [i, a] of ads.entries()) { btn.textContent = `Bild ${i + 1}/${ads.length} entsteht …`; try { await bildErzeugen(a); ok++; } catch (e) { toast(e.message); if (/Schlüssel|Guthaben/.test(e.message)) break; } }
+    toast(`${ok} von ${ads.length} Bildern erzeugt`); btn.disabled = false; btn.textContent = alt;
+  }
   function renderKampagnen() {
     const el = $("k-kampagnen"); const list = KP().map((k) => ({ k, s: kampStats(k) }));
     if (!list.length) { el.innerHTML = `<div class="empty"><strong>Noch keine Kampagne</strong>Fülle links aus und klick auf „Kampagne erstellen“.</div>`; return; }
@@ -525,13 +582,15 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
       <div class="kstats"><div><b>${s.ads.length}</b><span>Anzeigen</span></div><div><b>${eur2(s.c.gesamt)}</b><span>Kosten bisher${k.budget ? " · Budget " + eur(k.budget) : ""}</span></div><div><b>${s.kontakte}</b><span>Kontakte</span></div><div><b>${s.leads}</b><span>Leads</span></div><div><b>${s.cpl == null ? "—" : eur(s.cpl)}</b><span>Kosten pro Lead</span></div><div><b>${eur2(s.erloes - s.c.gesamt)}</b><span>Deckungsbeitrag</span></div></div>
       ${costBar(s.c)}
       ${thumbs ? `<div class="thumbs">${thumbs}</div>` : ""}${k.zusammenfassung ? `<p class="hint">${esc(k.zusammenfassung)}</p>` : ""}
-      <div class="btns">${k.status === "Wartet auf Freigabe" ? `<button class="b small primary" data-act="kfrei">Freigeben</button>` : ""}<button class="b small ghost" data-act="kads">Anzeigen ansehen</button><button class="b small ghost" data-act="kaus">Auswertung</button></div></article>`;
+      <div class="btns">${k.status === "Wartet auf Freigabe" ? `<button class="b small primary" data-act="kfrei">Freigeben</button>` : ""}${bildServer() && s.ads.some(braucheBild) ? `<button class="b small primary" data-act="kbild">Bilder erzeugen (${s.ads.filter(braucheBild).length})</button>` : ""}${thumbs ? `<button class="b small ghost" data-act="kzip">Alle Bilder herunterladen</button>` : ""}<button class="b small ghost" data-act="kads">Anzeigen ansehen</button><button class="b small ghost" data-act="kaus">Auswertung</button></div></article>`;
     }).join("")}</div>`;
   }
   $("k-sort").addEventListener("change", renderKampagnen);
   $("k-kampagnen").addEventListener("click", async (e) => {
     const img = e.target.closest("img[data-src]"); if (img) { openLightbox(img.dataset.src); return; }
     const btn = e.target.closest("button[data-act]"); if (!btn) return; const k = kampById(btn.closest("[data-id]").dataset.id); if (!k) return;
+    if (btn.dataset.act === "kzip") { await bilderZip(k, btn); return; }
+    if (btn.dataset.act === "kbild") { await bilderKampagne(k, btn); return; }
     if (btn.dataset.act === "kads") { $("ad-kampagne").value = k.id; showTab("anzeigen"); }
     if (btn.dataset.act === "kaus") { $("aw-kampagne").value = k.id; showTab("auswertung"); }
     if (btn.dataset.act === "kfrei") { const ok = await write(() => db.collection("kampagnen").doc(k.id).update({ status: "Freigegeben", freigegebenAm: Date.now() }), `${k.name} freigegeben`); if (ok) for (const a of S.anzeigen.filter((x) => x.kampagneId === k.id && x.status === "geplant")) await write(() => db.collection("anzeigen").doc(a.id).update({ status: "freigegeben" })); }
@@ -653,12 +712,13 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
   });
   function renderStudio() {
     const list = (lastStudio.length ? lastStudio.map(adById).filter(Boolean) : S.anzeigen.filter((a) => !a.demo && a.motiv?.typ === "entwurf").sort((x, y) => num(y.createdAt) - num(x.createdAt)).slice(0, 6));
-    $("st-out").innerHTML = list.length ? `<div class="variants">${list.map((a) => `<div class="variant" data-id="${esc(a.id)}"><div class="vname">${esc(a.code)} · ${esc(a.viral || "Klassisch")}</div>${adPreview(a)}<div class="vmeta"><div><b>Bild-Prompt</b></div><div class="prompt">${esc(a.motiv.bildPrompt || bildPrompt(a.motiv, a))}</div></div><div class="btns"><button class="b small ghost" data-act="copy">Prompt kopieren</button><button class="b small ghost" data-act="open">In Anzeigen</button></div></div>`).join("")}</div>` : `<div class="empty"><strong>Noch nichts erstellt</strong>Links Blatt, Kategorie, Ton und Viral-Baustein wählen und auf „Anzeigen erstellen“ klicken. Die Anzeigen landen direkt in Lokalpilot.</div>`;
+    $("st-out").innerHTML = list.length ? `<div class="variants">${list.map((a) => `<div class="variant" data-id="${esc(a.id)}"><div class="vname">${esc(a.code)} · ${esc(a.viral || "Klassisch")}</div>${adPreview(a)}<div class="vmeta"><div><b>Bild-Prompt</b></div><div class="prompt">${esc(a.motiv.bildPrompt || bildPrompt(a.motiv, a))}</div></div><div class="btns">${bildServer() && braucheBild(a) ? `<button class="b small primary" data-act="bild">Bild erzeugen</button>` : ""}<button class="b small ghost" data-act="copy">Prompt kopieren</button><button class="b small ghost" data-act="open">In Anzeigen</button></div></div>`).join("")}</div>` : `<div class="empty"><strong>Noch nichts erstellt</strong>Links Blatt, Kategorie, Ton und Viral-Baustein wählen und auf „Anzeigen erstellen“ klicken. Die Anzeigen landen direkt in Lokalpilot.</div>`;
   }
   $("st-out").addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-act]"); if (!btn) return; const a = adById(btn.closest("[data-id]").dataset.id); if (!a) return;
     if (btn.dataset.act === "copy") { try { await navigator.clipboard.writeText(a.motiv.bildPrompt || bildPrompt(a.motiv, a)); toast("Prompt kopiert"); } catch (err) { toast("Kopieren nicht möglich – Text markieren."); } }
     if (btn.dataset.act === "open") { $("ad-kampagne").value = a.kampagneId || ""; showTab("anzeigen"); }
+    if (btn.dataset.act === "bild") await bildButton(a, btn);
   });
 
   // ================= Anzeigen =================
@@ -688,7 +748,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
     if (adView === "vorschau") {
       $("ad-list").innerHTML = `<div class="gallery">${list.map((a) => { const s = adStats(a); const b = blattById(a.blattId); const facts = [a.kategorie, a.viral && a.viral !== "Klassisch" ? a.viral : "", a.ton].filter(Boolean).map(esc).join(" · ");
         const stat = geschaltet(a) ? `<div class="adstat"><span><b>${s.kontakte}</b>Kontakte</span><span><b>${s.leads}</b>Leads</span>${s.cpl == null ? "" : `<span><b>${eur(s.cpl)}</b>/ Lead</span>`}</div>` : `<div class="adstat"><span>${a.kosten ? `<b>${eur(a.kosten)}</b>geplant` : "Kosten offen"}</span></div>`;
-        const btns = a.demo ? "" : `<div class="btns">${a.motiv && !a.motiv.bildUrl && assets ? `<label class="b small ghost filebtn">Bild hochladen<input type="file" accept="image/jpeg,image/png,image/webp" data-act="upload"></label>` : ""}<button class="b small ghost" data-act="edit">Bearbeiten</button></div>`;
+        const btns = a.demo ? "" : `<div class="btns">${a.motiv && !a.motiv.bildUrl && assets ? `<label class="b small ghost filebtn">Bild hochladen<input type="file" accept="image/jpeg,image/png,image/webp" data-act="upload"></label>` : ""}${bildServer() && braucheBild(a) ? `<button class="b small ghost" data-act="bild">Bild erzeugen</button>` : ""}<button class="b small ghost" data-act="edit">Bearbeiten</button></div>`;
         return `<div class="adcard" data-id="${esc(a.id)}"><div class="shot">${adPreview(a)}</div><div class="body"><div class="row1"><span class="code">${esc(a.code)}${a.demo ? ` · Beispiel` : ""}</span><span class="st ${esc(a.status)}">${esc(a.status)}</span></div>${a.motiv?.headline ? `<div class="hl">${esc(a.motiv.headline)}</div>` : ""}<div class="facts">${esc(b?.stadt || "—")} · ${a.datum ? fmtDate(a.datum) : "Termin offen"}<br>${facts}</div><div class="foot">${stat}${btns}</div></div></div>`; }).join("")}</div>`;
       return;
     }
@@ -718,6 +778,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
     const im = e.target.closest(".adimg"); if (im) { openLightbox(im.dataset.src); return; }
     const btn = e.target.closest("button[data-act]"); if (!btn) return; const a = adById(btn.closest("[data-id]").dataset.id); if (!a) return;
     if (btn.dataset.act === "edit") editAd(a);
+    if (btn.dataset.act === "bild") bildButton(a, btn);
     if (btn.dataset.act === "del") armDelete(btn, () => write(() => db.collection("anzeigen").doc(a.id).delete(), `Anzeige ${a.code} gelöscht`));
   });
   function setAdView(v) { adView = v; $("v-anzeigen").querySelector(".split").classList.toggle("full", v === "vorschau"); $("vt-neu").hidden = v !== "vorschau"; $("vt-vorschau").setAttribute("aria-pressed", String(v === "vorschau")); $("vt-liste").setAttribute("aria-pressed", String(v === "liste")); lsSet("lp-adview", v); renderAds(); }
