@@ -54,7 +54,7 @@ export default function Login() {
           <p className="lp-auth-claim">Lokale Kampagnen auf Autopilot</p>
           <h1>Anmelden</h1>
           <p>Wir schicken dir einen Code per E-Mail. Kein Passwort nötig.</p>
-          {fehler ? <p className="lp-auth-err">Der Link hat nicht funktioniert (z. B. in einem anderen Browser geöffnet). Fordere einfach einen Code an.</p> : null}
+          {fehler ? <p className="lp-auth-err">{fehler === "abgelaufen" ? "Der Link ist abgelaufen oder wurde schon benutzt. Fordere einfach einen neuen Code an." : "Der Link hat nicht funktioniert. Fordere einfach einen neuen Code an und gib ihn hier ein."}</p> : null}
           <label className="f">
             E-Mail
             <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@firma.de" />
