@@ -24,6 +24,16 @@ export default function Lokalpilot({ email }) {
       f.querySelector("span").textContent = email;
       fuss.after(f);
     }
+    // Link zur Seite „Buchungen“ (Buchungs-Agent) in der Seitenleiste
+    const nav = document.querySelector("nav.tabs");
+    if (nav && !document.getElementById("lp-buchungen-link")) {
+      const a = document.createElement("a");
+      a.id = "lp-buchungen-link";
+      a.href = "/buchungen";
+      a.style.cssText = "display:flex;align-items:center;gap:10px;font:500 14px/1 var(--body);color:var(--ink-2);border-radius:9px;padding:9px 10px;text-decoration:none";
+      a.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M8 14l2.5 2.5L16 12"/></svg>Buchungen`;
+      nav.appendChild(a);
+    }
     // Leere Datenbank: Admin kann die Daten aus dem Prototyp mit einem Klick übernehmen
     fetch("/api/import").then((r) => (r.ok ? r.json() : null)).then((j) => {
       if (!j?.leer || !j.admin) return;
