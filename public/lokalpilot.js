@@ -616,7 +616,7 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
     return m24Mock(m, a);
   }
   function erscheinungstermine(b, von, bis) { const out = []; const ti = TAG_IDX[b.tag]; if (ti == null) return out; for (let t = Date.parse(von); t <= Date.parse(bis); t += 864e5) { const d = new Date(t); if (d.getUTCDay() === ti) out.push(d.toISOString().slice(0, 10)); } return out; }
-  function sampleErr(err) { const c = err && err.code; if (c === "cancelled") return "Abgebrochen."; if (["not_granted", "sampling_disabled", "not_declared", "capability_disabled"].includes(c)) return "Die KI ist für diese Ansicht nicht freigegeben."; if (c === "rate_limited") return "Gerade zu viele Anfragen. Bitte in ein paar Minuten nochmal."; if (c === "invalid_json") return "Die Antwort war nicht lesbar. Bitte nochmal versuchen."; if (c === "refused") return "Die KI hat das abgelehnt. Hinweise anpassen."; return "Die KI war nicht erreichbar. Bitte nochmal versuchen."; }
+  function sampleErr(err) { const c = err && err.code; if (c === "cancelled") return "Abgebrochen."; if (["not_granted", "sampling_disabled", "not_declared", "capability_disabled"].includes(c)) return "Die KI ist für diese Ansicht nicht freigegeben" + (err.detail ? " (" + err.detail + ")" : "."); if (c === "rate_limited") return "Gerade zu viele Anfragen. Bitte in ein paar Minuten nochmal."; if (c === "invalid_json") return "Die Antwort der KI war unvollständig oder nicht lesbar" + (err.detail ? " (" + err.detail + ")" : "") + ". Bitte nochmal versuchen, ggf. mit kürzerem Zeitraum oder weniger Kategorien."; if (c === "refused") return "Die KI hat das abgelehnt. Hinweise anpassen."; return "Die KI war nicht erreichbar" + (err && err.detail ? ": " + err.detail : ". Bitte nochmal versuchen."); }
   const RULES = `Regeln für Texte: Deutsch, Sie-Form, Zielgruppe 50+, kurze Wörter. Headline höchstens 9 Wörter. Unterzeile nennt "3 Angebote" und die passenden Anbieter aus <Stadt> und Umgebung (siehe Kategorie, z. B. "Küchenstudios aus Peine und Umgebung"). Genau 3 kurze Häkchen (z. B. "Kostenlos & unverbindlich", "Fachbetriebe aus Ihrer Region", dritter je Kategorie). Keine erfundenen Zahlen, Fristen, Förderquoten, Preise, Testsiegel oder Kundenstimmen. Pflege: Humor nur liebevoll, nie auf Kosten der Betroffenen. Format-Parodien als ANZEIGE kennzeichnen. Keine Telefonnummern oder Links im Text.`;
   const viralText = VIRAL.map((v) => `${v.id}: ${v.d}`).join("\n");
 
@@ -731,7 +731,8 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
     keep($("aw-kampagne"), `<option value="">Alle Kampagnen</option>` + options(kOpts));
     keep($("ad-kampagne"), `<option value="">Alle Kampagnen</option>` + options(kOpts));
     keep($("a-kampagne"), `<option value="">— ohne Kampagne —</option>` + options(kOpts.filter((o) => !kampById(o.value)?.demo)));
-    keep($("st-kampagne"), `<option value="">— ohne Kampagne —</option>` + options(kOpts.filter((o) => !kampById(o.value)?.demo)));
+    { const echt = kOpts.filter((o) => !kampById(o.value)?.demo), demo = kOpts.filter((o) => kampById(o.value)?.demo);
+      keep($("st-kampagne"), `<option value="">— ohne Kampagne —</option>` + (echt.length ? `<optgroup label="Eure Kampagnen">${options(echt)}</optgroup>` : "") + (demo.length ? `<optgroup label="Beispiele (nur Ansicht, nicht bearbeitbar)">${demo.map((o) => `<option value="${esc(o.value)}" disabled>${esc(o.label)}</option>`).join("")}</optgroup>` : "")); }
     const adOpts = A().filter((a) => !a.demo).sort((x, y) => String(y.datum).localeCompare(String(x.datum))).map((a) => ({ value: a.id, label: `${a.code} · ${blattById(a.blattId)?.name || "?"} · ${fmtDate(a.datum)}` }));
     keep($("k-anzeige"), adOpts.length ? options(adOpts) : `<option value="">Noch keine Anzeigen</option>`);
     const box = $("kw-blaetter"); const sel = readChecks(box); const fresh = !box.dataset.init;
@@ -914,4 +915,66 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
       schedule();
     }, onErr);
   });
+})();
+
+/* Erklär-Tooltips an den Formularfeldern: kleines „?“ neben der Beschriftung, Hover oder Tippen zeigt die Erklärung. */
+(() => {
+  const TIPS = {
+    // Neue Kampagne
+    "kw-name": "Frei wählbarer Name, nur für euch. Erscheint in der Kampagnen-Liste, in Analytics und in den Filtern. Tipp: Stadt + Idee + Zeitraum, z. B. „Salzgitter Winter · Lokalpatriotismus“.",
+    "kw-blaetter": "In welchen Wochenblättern der Agent schalten darf. Er plant Termine nur an den echten Erscheinungstagen dieser Blätter.",
+    "kw-kat": "Wofür geworben wird. Der Agent verteilt die Schaltungen auf diese Kategorien, jede Anzeige bekommt genau eine.",
+    "kw-ton": "Tonalität der Texte (seriös, humorvoll, ironisch …). „Mix testen“: Der Agent mischt bewusst verschiedene Töne, damit Analytics später zeigt, welcher am besten wirkt.",
+    "kw-viral": "Der kreative Kniff, der eine Anzeige auffallen und weitererzählen lässt, z. B. Serienfigur, Format-Parodie, Lokalpatriotismus. „Klassisch“ = normale Nutzen-Anzeige als Vergleichsgruppe. „Agent wählt“: Der Agent entscheidet je Anzeige, auch nach dem Lern-Modell.",
+    "kw-budget": "Gesamtbudget netto für die Zeitungsschaltungen der ganzen Kampagne. Der Agent plant nur so viele Termine, wie hineinpassen. KI-Texte und -Bilder kosten zusätzlich meist nur Cent-Beträge.",
+    "kw-motive": "Ein Motiv ist eine fertige Anzeige (Headline, Text, Bild) mit eigenem Code.\n• Vorhandene + neue: Der Agent nimmt eure bewährten Motive (z. B. die Punk-Serie), wo sie passen, und textet für den Rest neue.\n• Nur vorhandene: nichts Neues, nur schon erstellte Motive wieder schalten. Gut, um Gewinner in einer neuen Stadt zu testen.\n• Nur neue texten: alles frisch, alte Motive bleiben außen vor.\nNeue Motive brauchen danach noch ein Bild (Higgsfield).",
+    "kw-von": "Zeitraum, in dem die Anzeigen erscheinen sollen (nicht das Buchungsdatum). Der Agent sucht darin die Erscheinungstage der gewählten Blätter, z. B. jeden Samstag, und verteilt die Schaltungen darauf. Achtung: Der Anzeigenschluss liegt meist einige Tage vor dem Erscheinen, also den Start nicht zu knapp wählen. Vorbelegt ist „in 2 bis 10 Wochen“.",
+    "kw-bis": "Letzter Tag, an dem eine Anzeige erscheinen darf. Je länger der Zeitraum, desto mehr Termine stehen zur Auswahl. Das Budget begrenzt trotzdem die Anzahl.",
+    "kw-hinweis": "Freitext an den Agenten, wird wörtlich mitgegeben. Zum Beispiel: bestimmte Motive bevorzugen, eine Kategorie nur in einem Blatt, Feiertage meiden, Schwerpunkt auf eine Stadt.",
+    // Automatik & Marke
+    "s-marke": "Unter welchem Namen die Anzeigen erscheinen (Text und Bild-Prompt). Lokalpilot ist nur das Werkzeug, in der Anzeige steht die Marke, z. B. Modernisieren24.",
+    "s-limit": "Bis zu diesem Betrag (€ je Kampagne) gibt der Agent eine neue Kampagne selbst frei. Ist sie teurer, wartet sie auf euren Klick. Leer = jede Kampagne wartet auf euren Klick. Freigegeben heißt noch nicht gebucht: Die Buchung beim Verlag ist ein eigener Schritt.",
+    "s-erloes": "Was ihr im Schnitt für einen verkauften Lead bekommt (Verkaufspreis an den Abnehmer). Damit rechnet Lokalpilot Deckungsbeitrag und Prognosen.",
+    "s-kin": "Preis der KI (Anthropic) je 1 Million Tokens, die an die KI geschickt werden (Anweisungen, Daten). Dient nur der Kostenanzeige „KI-Texte“. 3 € entspricht etwa Claude Sonnet. 1 Million Tokens sind grob 600.000 Wörter.",
+    "s-kout": "Preis je 1 Million Tokens, die die KI zurückschreibt (Antworten, Anzeigentexte). Meist 5× teurer als die Eingabe. 15 € entspricht etwa Claude Sonnet.",
+    "s-credit": "Was euch ein Higgsfield-Credit kostet (Abo-Preis ÷ enthaltene Credits). Dient der Kostenanzeige „KI-Bilder“.",
+    "s-metacpm": "Was 1.000 Einblendungen bei Meta (Facebook/Instagram) etwa kosten. Analytics vergleicht damit, was 1.000 Exemplare Auflage im Wochenblatt kosten („Lokal günstiger als Meta?“).",
+    // KI-Studio
+    "st-kampagne": "Zu welcher Kampagne die neuen Anzeigen gehören. Wählbar sind nur eure eigenen Kampagnen. Beispielkampagnen sind ausgegraut, weil Beispieldaten nicht bearbeitet werden. Ohne Kampagne landen die Anzeigen lose unter „Anzeigen“.",
+    "st-blatt": "Für welches Wochenblatt getextet wird. Bestimmt Stadt (Lokalbezug), Tracking-Code und Format.",
+    "st-kategorie": "Wofür die Anzeigen werben.",
+    "st-anzahl": "Wie viele Varianten die KI auf einmal erstellt. Mehrere Varianten lassen sich später gegeneinander testen.",
+    "st-ton": "Tonalität der Texte, z. B. seriös, humorvoll oder ironisch.",
+    "st-viral": "Der kreative Kniff der Anzeige, z. B. Serienfigur, Format-Parodie, Lokalpatriotismus. „Klassisch“ = normale Nutzen-Anzeige.",
+    "st-layout": "Aufbau der Anzeige: A Foto + 3 Häkchen · B Frage + Badge · C „Ein Anruf. Drei Angebote.“ · D 3 Schritte · P Format-Parodie. „KI wählt passend“ entscheidet je Anzeige.",
+    "st-hinweis": "Optionale Vorgabe für die Idee, z. B. eine Figur, ein Ort, ein Spruch oder ein Anlass.",
+  };
+  let box;
+  const zeige = (el) => {
+    if (!box) { box = document.createElement("div"); box.className = "tipbox"; box.setAttribute("role", "tooltip"); document.body.appendChild(box); }
+    box.textContent = el.dataset.tip; box.hidden = false;
+    const r = el.getBoundingClientRect(), w = Math.min(320, window.innerWidth - 24);
+    box.style.width = w + "px";
+    const left = Math.max(12, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 12));
+    box.style.left = left + "px";
+    const h = box.offsetHeight, unten = r.bottom + 8;
+    box.style.top = (unten + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 8) : unten) + "px";
+  };
+  const weg = () => { if (box) box.hidden = true; };
+  const einbauen = () => {
+    for (const [id, text] of Object.entries(TIPS)) {
+      const el = document.getElementById(id); if (!el) continue;
+      const ziel = el.closest("fieldset")?.querySelector("legend") || el.closest("label");
+      if (!ziel || ziel.querySelector(".tip")) continue;
+      const t = document.createElement("span");
+      t.className = "tip"; t.tabIndex = 0; t.textContent = "?"; t.dataset.tip = text; t.setAttribute("aria-label", text);
+      const txt = [...ziel.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+      if (txt) { const w = document.createElement("span"); w.className = "tiplbl"; txt.replaceWith(w); w.append(txt, t); } else ziel.prepend(t);
+      t.addEventListener("mouseenter", () => zeige(t)); t.addEventListener("mouseleave", weg);
+      t.addEventListener("focus", () => zeige(t)); t.addEventListener("blur", weg);
+      t.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); box && !box.hidden && box.textContent === text ? weg() : zeige(t); });
+    }
+  };
+  window.addEventListener("scroll", weg, true);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", einbauen); else einbauen();
 })();

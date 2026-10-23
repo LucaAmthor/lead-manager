@@ -381,3 +381,9 @@ details.settings summary{cursor:pointer;font-weight:600;font-size:14px}
 .lp-import{position:fixed;right:20px;bottom:20px;z-index:30;width:min(380px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow-lg);display:grid;gap:8px;font-size:13.5px;color:var(--ink-2)}
 .lp-import b{color:var(--ink)}
 .lp-auth-claim{font:600 12px var(--mono)!important;letter-spacing:.06em;text-transform:uppercase;color:var(--brand)!important;margin-top:-4px!important}
+
+/* Erklär-Tooltips */
+.tiplbl{display:inline-flex;align-items:center;gap:6px}
+.tip{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink-3);font:600 10.5px/1 var(--body);cursor:help;flex:none;user-select:none}
+.tip:hover,.tip:focus-visible{border-color:var(--brand);color:var(--brand);outline:none}
+.tipbox{position:fixed;z-index:1000;padding:10px 12px;border-radius:10px;background:var(--ink);color:var(--paper,#fff);font:400 12.5px/1.5 var(--body);box-shadow:0 8px 24px rgba(0,0,0,.18);white-space:pre-line;pointer-events:none}
