@@ -106,3 +106,5 @@ button.b:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 
 .bk-warn { color: #b42318; font-weight: 600; }
 .bk-mail.geplant { opacity: .75; border-style: dashed; }
+.bk td.bk-gut { color: #067647; font-weight: 600; }
+.bk td.bk-warn { color: #b42318; }

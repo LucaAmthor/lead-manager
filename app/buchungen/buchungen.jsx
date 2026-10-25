@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { buchungsweg, STATUS_TEXT, OFFEN, eur, datumLang, tageBis, heuteISO, FORMATE, standardpreis } from "@/lib/buchung/regeln";
+import { buchungsweg, STATUS_TEXT, OFFEN, eur, datumLang, tageBis, heuteISO, FORMATE, standardpreis, vergleichspreis } from "@/lib/buchung/regeln";
 
 // Seite „Buchungen“: was der Buchungs-Agent tut, wo er Hilfe braucht, wie jedes Blatt gebucht wird.
 const SAMMLUNGEN = ["blaetter", "anzeigen", "buchungen", "buchung_mails", "einstellungen", "kampagnen"];
@@ -154,6 +154,8 @@ export default function Buchungen({ email }) {
         {!bereit ? <p className="bk-leer">Lade …</p> : !sichtbar.length ? <p className="bk-leer">Nichts in dieser Ansicht.</p> : sichtbar.map((b) => <BuchungKarte key={b.id} b={b} blatt={blatt(b.blattId)} anzeigen={(b.anzeigeIds || []).map((i) => d.anzeigen.get(i)).filter(Boolean)} mails={mails.filter((m) => m.buchungId === b.id)} tun={tun} cfg={cfg} />)}
       </section>
 
+      {!!blaetter.length && <Vergleich blaetter={blaetter} buchungen={arr("buchungen")} cfg={cfg} />}
+
       <section className="bk-karte">
         <div className="bk-sechead">
           <h2>Buchungswege je Blatt</h2>
@@ -281,7 +283,7 @@ function BuchungKarte({ b, blatt, anzeigen, mails, tun, cfg }) {
         <b>{b.blattName || blatt?.name}</b>
         <span className="mono">{(b.codes || []).join(", ")}</span>
         <span>{b.weg === "shop" ? "Direktbuchung" : b.weg === "anfrage" ? "Anfrage per Mail" : "–"}{b.testmodus ? " · Test" : ""}</span>
-        <span className="bk-preis">{b.preisNetto ? eur(b.preisNetto) : b.angebot?.preisNetto ? `Angebot ${eur(b.angebot.preisNetto)}` : b.planKosten ? `Plan ${eur(b.planKosten)}` : ""}</span>
+        <span className="bk-preis">{b.preisNetto ? eur(b.preisNetto) : b.angebot?.preisNetto ? `Angebot ${eur(b.angebot.preisNetto)}${(() => { const v = vergleichspreis(b.angebot.preisNetto, anzeigen.map((a) => a.format), blatt); return v ? ` · VP ${eur(v)}` : ""; })()}` : b.planKosten ? `Plan ${eur(b.planKosten)}` : ""}</span>
         <span className="bk-zeit">{zeit((b.verlauf || []).slice(-1)[0]?.t)}</span>
       </div>
       {b.status === "braucht_hilfe" && b.hilfe && <p className="bk-hilfe">{b.hilfe}</p>}
@@ -442,7 +444,7 @@ function Einstellungen({ cfg, speichern }) {
         <label>Absendername<input value={v.absenderName || ""} onChange={(e) => set("absenderName", e.target.value)} /></label>
         <label>Buchen ab … Tage vor Termin<input type="number" value={v.vorlaufTage ?? 21} onChange={(e) => set("vorlaufTage", n(e.target.value))} /></label>
         <label>Spätestens … Tage vor Termin<input type="number" value={v.mindestVorlaufTage ?? 4} onChange={(e) => set("mindestVorlaufTage", n(e.target.value))} /></label>
-        <label>Höchstpreis allgemein: € je 1.000 Exemplare (1/4 Seite, leer = aus)<input type="number" value={v.maxTkpViertelseite ?? ""} onChange={(e) => set("maxTkpViertelseite", n(e.target.value))} /></label>
+        <label>Höchster Vergleichspreis (€ je 1.000 Exemplare × 1/4 Seite, leer = aus)<input type="number" value={v.maxTkpViertelseite ?? ""} onChange={(e) => set("maxTkpViertelseite", n(e.target.value))} /></label>
         <label>Preis-Toleranz über Plan (%)<input type="number" value={v.preisToleranzProzent ?? 15} onChange={(e) => set("preisToleranzProzent", n(e.target.value))} /></label>
         <label>Monatslimit Buchungen (€ netto, leer = keins)<input type="number" value={v.monatsLimit ?? ""} onChange={(e) => set("monatsLimit", n(e.target.value))} /></label>
         <label>Nachfassen nach … Werktagen<input type="number" value={v.nachfassenNachTagen ?? 2} onChange={(e) => set("nachfassenNachTagen", n(e.target.value))} /></label>
@@ -460,16 +462,49 @@ function Einstellungen({ cfg, speichern }) {
       </div>
       <div className="bk-aktionen">
         <button className="b primary" disabled={!f} onClick={async () => { await speichern(v); setF(null); }}>Speichern</button>
-        <span className="bk-hint">Höchstpreis je Buchung = Auflage ÷ 1.000 × allgemeiner Höchstpreis (1/4 Seite; kleinere Formate nach Fläche). Stehen an der Anzeige feste Kosten, gelten diese + Toleranz. Darüber wartet der Agent auf eure Freigabe.</span>
+        <span className="bk-hint">Der Agent rechnet jedes Angebot in den Vergleichspreis um (Preis ÷ Auflage in Tausend ÷ Größe in Viertelseiten) und sagt bis zu eurer Grenze ohne Rückfrage zu. Stehen an der Anzeige feste Kosten, gelten diese + Toleranz. Darüber wartet der Agent auf eure Freigabe.</span>
       </div>
     </details>
   );
 }
 
 
+// Alle Blätter auf einen Nenner: Vergleichspreis = € für 1.000 Exemplare mit einer 1/4 Seite. Kleiner = günstiger.
+function Vergleich({ blaetter, buchungen, cfg }) {
+  const grenze = Number(cfg?.maxTkpViertelseite) || null;
+  const zeilen = blaetter.map((b) => {
+    const liste = standardpreis(b, "q-hoch").preis;
+    const vpListe = liste ? vergleichspreis(liste, ["q-hoch"], b) : null;
+    const gezahlt = buchungen.filter((x) => x.blattId === b.id && x.kennzahlen?.vergleichspreis).map((x) => x.kennzahlen.vergleichspreis);
+    return { b, liste, vpListe, vpGezahlt: gezahlt.length ? Math.min(...gezahlt) : null };
+  }).sort((x, y) => (x.vpGezahlt ?? x.vpListe ?? 1e9) - (y.vpGezahlt ?? y.vpListe ?? 1e9));
+  return (
+    <section className="bk-karte">
+      <div className="bk-sechead">
+        <h2>Blätter im Vergleich</h2>
+        <span className="bk-hint">Vergleichspreis = was es kostet, 1.000 Exemplare mit einer 1/4 Seite zu erreichen. Gilt für jede Größe und jedes Blatt – kleiner ist günstiger.{grenze ? ` Eure Grenze: ${eur(grenze)}.` : ""}</span>
+      </div>
+      <div className="bk-tabelle"><table>
+        <thead><tr><th>Blatt</th><th>Auflage</th><th>Liste 1/4 Seite</th><th>Vergleichspreis Liste</th><th>Bester gezahlter</th></tr></thead>
+        <tbody>
+          {zeilen.map(({ b, liste, vpListe, vpGezahlt }) => (
+            <tr key={b.id}>
+              <td>{b.name}</td>
+              <td>{b.auflage ? Number(b.auflage).toLocaleString("de-DE") : "fehlt"}</td>
+              <td>{liste ? eur(liste) : "–"}</td>
+              <td className={grenze && vpListe ? (vpListe <= grenze ? "bk-gut" : "bk-warn") : ""}>{vpListe ? eur(vpListe) : "–"}</td>
+              <td className={grenze && vpGezahlt ? (vpGezahlt <= grenze ? "bk-gut" : "bk-warn") : ""}>{vpGezahlt ? eur(vpGezahlt) : "–"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table></div>
+    </section>
+  );
+}
+
 // Kombi-Angebot des Verlags und wie der Agent es bewertet hat
 function Kombi({ k }) {
-  return (<><h4>Kombi-Angebot</h4><p className="bk-hint">{k.gut ? "Gutes Angebot" : "Kein gutes Angebot"}{k.jeAnzeige != null ? ` · ${eur(k.jeAnzeige)} je Anzeige` : ""}{k.rabatt != null ? ` · ${k.rabatt} % unter Liste` : ""}{k.tkp != null ? ` · TKP ${eur(k.tkp)}` : ""}{k.frei != null ? ` · Budget frei ${eur(k.frei)}` : ""}</p>{k.bewertung && <p className="bk-hint">{k.bewertung}</p>}</>);
+  return (<><h4>Kombi-Angebot</h4><p className="bk-hint">{k.gut ? "Gutes Angebot" : "Kein gutes Angebot"}{k.jeAnzeige != null ? ` · ${eur(k.jeAnzeige)} je Anzeige` : ""}{k.rabatt != null ? ` · ${k.rabatt} % unter Liste` : ""}{k.vergleichspreis != null ? ` · Vergleichspreis ${eur(k.vergleichspreis)}` : k.tkp != null ? ` · TKP ${eur(k.tkp)}` : ""}{k.frei != null ? ` · Budget frei ${eur(k.frei)}` : ""}</p>{k.bewertung && <p className="bk-hint">{k.bewertung}</p>}</>);
 }
 
 // Vorkasse: vom Agenten geprüfte Zahlungsdaten. Überwiesen wird (noch) von Hand.
@@ -496,6 +531,7 @@ function Zahlung({ z, bezahlt }) {
 function Kennzahlen({ k }) {
   const z = (v, f) => (v == null ? null : f(v));
   const teile = [
+    z(k.vergleichspreis, (v) => `Vergleichspreis ${eur(v)}`),
     z(k.tkp, (v) => `TKP ${eur(v)} je 1.000 Exemplare`),
     z(k.auflage, (v) => `Auflage ${Number(v).toLocaleString("de-DE")}`),
     z(k.listenpreis, (v) => `Listenpreis ${eur(v)}`),
@@ -528,7 +564,7 @@ function Preise({ b, speichern }) {
           return (
             <label key={fid}>{f.label}
               <input inputMode="decimal" defaultValue={p[fid] ?? ""} placeholder={sp.quelle === "mm-Preis" ? `${sp.preis} (mm)` : "€"} onBlur={(e) => String(p[fid] ?? "") !== e.target.value && setzen(fid, e.target.value)} />
-              <span className="bk-hint">{sp.preis && auf ? `TKP ${eur(sp.preis / (auf / 1000))}` : " "}</span>
+              <span className="bk-hint">{sp.preis && auf ? `Vergleichspreis ${eur(vergleichspreis(sp.preis, [fid], b))}` : " "}</span>
             </label>
           );
         })}
