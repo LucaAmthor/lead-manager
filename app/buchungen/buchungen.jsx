@@ -439,6 +439,7 @@ function Einstellungen({ cfg, speichern }) {
         <label>Preis-Toleranz über Plan (%)<input type="number" value={v.preisToleranzProzent ?? 15} onChange={(e) => set("preisToleranzProzent", n(e.target.value))} /></label>
         <label>Monatslimit Buchungen (€ netto, leer = keins)<input type="number" value={v.monatsLimit ?? ""} onChange={(e) => set("monatsLimit", n(e.target.value))} /></label>
         <label>Nachfassen nach … Werktagen<input type="number" value={v.nachfassenNachTagen ?? 2} onChange={(e) => set("nachfassenNachTagen", n(e.target.value))} /></label>
+        <label>Nachverhandeln: Ziel-Rabatt (%, 0 = aus)<input type="number" value={v.zielRabattProzent ?? 15} onChange={(e) => set("zielRabattProzent", n(e.target.value))} /></label>
       </div>
       <h3>Firma / Rechnungsadresse</h3>
       <div className="bk-grid">
