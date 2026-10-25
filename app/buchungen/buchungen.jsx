@@ -533,7 +533,7 @@ function Ergebnis({ e, bester }) {
 
 // Kombi-Angebot des Verlags und wie der Agent es bewertet hat
 function Kombi({ k }) {
-  return (<><h4>Kombi-Angebot</h4><p className="bk-hint">{k.gut ? "Gutes Angebot" : "Kein gutes Angebot"}{k.jeAnzeige != null ? ` · ${eur(k.jeAnzeige)} je Anzeige` : ""}{k.rabatt != null ? ` · ${k.rabatt} % unter Liste` : ""}{k.vergleichspreis != null ? ` · Vergleichspreis ${eur(k.vergleichspreis)}` : k.tkp != null ? ` · TKP ${eur(k.tkp)}` : ""}{k.frei != null ? ` · Budget frei ${eur(k.frei)}` : ""}</p>{k.bewertung && <p className="bk-hint">{k.bewertung}</p>}</>);
+  return (<><h4>Kombi-Angebot</h4><p className="bk-hint">{k.gut ? "Gutes Angebot" : "Kein gutes Angebot"}{k.jeAnzeige != null ? ` · ${eur(k.jeAnzeige)} je Anzeige` : ""}{k.rabatt != null ? ` · ${Math.round(k.rabatt * 100)} % unter Liste` : ""}{k.vergleichspreis != null ? ` · Vergleichspreis ${eur(k.vergleichspreis)}` : k.tkp != null ? ` · TKP ${eur(k.tkp)}` : ""}{k.frei != null ? ` · Budget frei ${eur(k.frei)}` : ""}</p>{k.bewertung && <p className="bk-hint">{k.bewertung}</p>}</>);
 }
 
 // Vorkasse: vom Agenten geprüfte Zahlungsdaten. Überwiesen wird (noch) von Hand.
