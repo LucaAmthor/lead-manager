@@ -1,0 +1,19 @@
+/* Seite „WhatsApp“ */
+.wa-raster{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:12px;min-height:560px}
+.wa-liste{display:flex;flex-direction:column;gap:2px;max-height:72vh;overflow:auto}
+.wa-eintrag{display:grid;grid-template-columns:1fr auto;gap:2px 8px;text-align:left;border:0;background:none;padding:10px;border-radius:10px;cursor:pointer;font:inherit;color:var(--ink)}
+.wa-eintrag:hover{background:var(--surface-2)} .wa-eintrag.an{background:var(--brand-soft)}
+.wa-eintrag b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wa-eintrag small{grid-column:1/-1;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wa-eintrag .wa-zahl{background:var(--good);color:#fff;border-radius:20px;font-size:11px;padding:1px 7px;align-self:center}
+.wa-chat{display:flex;flex-direction:column;min-height:0}
+.wa-kopf{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.wa-verlauf{flex:1;overflow:auto;display:flex;flex-direction:column;gap:6px;padding:12px 2px;max-height:56vh}
+.wa-blase{max-width:78%;padding:8px 11px;border-radius:12px;white-space:pre-wrap;font-size:14px;line-height:1.4}
+.wa-blase.ein{align-self:flex-start;background:var(--surface-2)}
+.wa-blase.aus{align-self:flex-end;background:var(--brand-soft)}
+.wa-blase small{display:block;color:var(--ink-3);font-size:11px;margin-top:3px}
+.wa-eingabe{display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
+.wa-eingabe textarea{flex:1}
+.wa-felder{font-size:13px;display:grid;gap:2px;margin:8px 0 0}
+@media (max-width:760px){.wa-raster{grid-template-columns:1fr}.wa-liste{max-height:240px}}

@@ -1,0 +1,20 @@
+/* Seite „Telefon“ – ergänzt buchungen.css */
+.tf-hinweis{padding:12px 14px;border-radius:var(--r);background:var(--warn-soft);color:var(--ink);border:1px solid var(--warn)}
+.tf-hinweis b{color:var(--warn)}
+.tf-zeile{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tf-st{font:600 11.5px/1 var(--body);padding:4px 8px;border-radius:20px;background:var(--surface-2);color:var(--ink-2);white-space:nowrap}
+.tf-st.verpasst,.tf-st.mailbox{background:var(--crit-soft);color:var(--crit)}
+.tf-st.beendet,.tf-st.laeuft{background:var(--good-soft);color:var(--good)}
+.tf-st.klingelt{background:var(--brand-soft);color:var(--brand)}
+.tf-st.zugewiesen{background:var(--brand-soft);color:var(--brand)} .tf-st.frei{background:var(--good-soft);color:var(--good)} .tf-st.ruhend{background:var(--warn-soft);color:var(--warn)}
+.tf-stunden{display:grid;grid-template-columns:repeat(24,1fr);gap:3px;align-items:end;height:90px;margin-top:8px}
+.tf-stunden div{background:var(--brand);border-radius:3px 3px 0 0;min-height:2px;position:relative}
+.tf-stunden div.leer{background:var(--line)}
+.tf-achse{display:grid;grid-template-columns:repeat(24,1fr);gap:3px;font-size:10px;color:var(--ink-3);text-align:center}
+.tf-ziel{display:grid;grid-template-columns:120px 1.2fr 1.2fr 90px auto;gap:8px;align-items:end;padding:8px 0;border-bottom:1px solid var(--line)}
+.tf-ziel .tf-nr{font:700 13px var(--mono);color:var(--ink-3);align-self:center}
+.tf-tage{display:flex;gap:4px;flex-wrap:wrap}
+.tf-tage label{flex-direction:row!important;align-items:center;gap:4px!important;background:var(--surface-2);padding:4px 8px;border-radius:8px}
+.tf-audio{height:32px;max-width:220px}
+.bk .tf-check{flex-direction:row;align-items:center;gap:8px;color:var(--ink);font-size:13.5px}
+@media (max-width:760px){.tf-ziel{grid-template-columns:1fr 1fr}.tf-ziel .tf-nr{grid-column:1/-1}}

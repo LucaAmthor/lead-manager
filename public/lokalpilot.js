@@ -55,7 +55,7 @@
     strategie: ["Strategie-Kompass", "Woran wir als Nächstes arbeiten sollten, damit der Plan aufgeht."],
   };
 
-  const S = { blaetter: [], anzeigen: [], kontakte: [], kampagnen: [], settings: { basisUrl: "", waNummer: "", marke: "", limit: null, erloes: null, erledigt: {} } };
+  const S = { blaetter: [], anzeigen: [], kontakte: [], kampagnen: [], besuche: [], settings: { basisUrl: "", waNummer: "", marke: "", limit: null, erloes: null, erledigt: {} } };
   let db = null, sample = null, assets = null;
   let editingAd = null, editingBlatt = null, adView = "vorschau", showDemo = true, currentTab = "auswertung";
   let lastStudio = [];
@@ -76,6 +76,32 @@
   const readChecks = (c) => [...c.querySelectorAll("input:checked")].map((i) => i.value);
   const setChecks = (c, vals) => c.querySelectorAll("input").forEach((i) => { i.checked = (vals || []).includes(i.value); });
   const prefix = (stadt) => (String(stadt || "XXX").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z]/g, "").toUpperCase() + "XXX").slice(0, 3);
+  // Aufrufe des Kurz-Links (getippt / QR / Social) und QR-Download – nur in der Server-Version
+  const trackingZeile = (a) => {
+    if (a.demo || !window.__lpServer) return "";
+    const b = S.besuche.filter((x) => x.anzeigeId === a.id); const sum = (f) => b.reduce((n, x) => n + num(x[f]), 0);
+    const auf = sum("aufrufe");
+    return `<br>${auf ? `${int(auf)} Aufrufe (QR ${int(sum("qr"))}${sum("social") ? `, Social ${int(sum("social"))}` : ""})` : "noch keine Aufrufe"} · <a href="/api/qr?code=${encodeURIComponent(a.code)}&format=svg">QR</a> <a href="/api/qr?code=${encodeURIComponent(a.code)}&format=png">PNG</a>${S.settings.waNummer ? ` <a href="/api/qr?code=${encodeURIComponent(a.code)}&format=svg&art=wa">WA-QR</a>` : ""} · <button type="button" class="linkbtn" data-act="social">Social</button>${viralZeile(a)}`;
+  };
+  // Viral-Faktor = Kontakte über Social (geteilte Fotos) ÷ Kontakte über Print
+  const viralZeile = (a) => {
+    const ks = S.kontakte.filter((k) => k.anzeigeId === a.id); const so = ks.filter((k) => k.herkunft === "social").length; if (!so) return "";
+    const pr = ks.length - so; return `<br>Social: ${so} Kontakt${so === 1 ? "" : "e"}${pr ? ` · Viral-Faktor ${(so / pr).toLocaleString("de-DE", { maximumFractionDigits: 2 })}` : ""}`;
+  };
+  async function socialKit(a, btn) {
+    let nr = a.trackingNummerSocial || "";
+    if (!nr) {
+      btn.disabled = true; btn.textContent = "Nummer wird geholt …";
+      try { const r = await fetch("/api/telefon", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ aktion: "zuweisen", anzeigeIds: [a.id], kanal: "social" }) }); const j = await r.json().catch(() => ({})); nr = j.zuordnung?.[a.id] || ""; if (!nr && j.fehler?.length) toast(j.fehler[0]); } catch {}
+      btn.disabled = false; btn.textContent = "Social";
+    }
+    const basis = S.settings.basisUrl ? S.settings.basisUrl.replace(/\/+$/, "") : location.origin + "/r";
+    const link = `${/^https?:/.test(basis) ? basis : "https://" + basis}/${a.code.toLowerCase()}?s=1`;
+    const blatt = blattById(a.blattId)?.name || "Wochenblatt";
+    const post = `Habt ihr unsere Anzeige im ${blatt} gesehen? ${a.motiv?.headline || ""}\nWer gerade über ${KAT_INFO[a.kategorie]?.name || a.kategorie} nachdenkt: Bei uns gibt es bis zu 3 Angebote aus der Region, kostenlos.\n${nr ? "☎ " + nr + "\n" : ""}${link}`;
+    actOpen(`Social-Post · ${a.code}`, `<p class="hint">Eigene Nummer und eigener Link nur für geteilte Fotos der Anzeige: So sieht Lokalpilot, wie viele Kontakte über Social kommen (Viral-Faktor). Posten in lokalen Gruppen bitte von Hand und nach den Gruppenregeln.</p>${copyBlock("so-link", link, "Social-Link")}${nr ? copyBlock("so-nr", nr, "Social-Nummer") : `<p class="hint">Noch keine Social-Nummer (Telefon unter /telefon einrichten). Der Link funktioniert trotzdem.</p>`}${copyBlock("so-post", post, "Vorschlag für den Post")}`, []);
+  }
+
   const adLink = (a) => S.settings.basisUrl && a?.code ? `${S.settings.basisUrl.replace(/\/+$/, "")}/${a.code.toLowerCase()}` : "";
   const geschaltet = (a) => a.status === "erschienen" || a.status === "beendet";
   const vis = (x) => showDemo || !x.demo;
@@ -356,7 +382,15 @@ Klar, kurz, DSGVO-orientiert, kein Rechtsrat. Antworte nur mit JSON: {"einwillig
   };
   const upcoming = () => S.anzeigen.filter((a) => !a.demo && a.datum && ["geplant", "freigegeben"].includes(a.status) && a.datum >= todayISO()).sort((x, y) => String(x.datum).localeCompare(String(y.datum)));
   ACTIONS.gebucht = { a: "Buchung vorbereiten", run: () => { const u = upcoming().slice(0, 8); if (!u.length) { toast("Keine geplanten Anzeigen mit Termin."); showTab("kampagnen"); return; } bookingAction(u); } };
-  ACTIONS.nummern = { a: "Nummern eintragen", run: () => {
+  ACTIONS.nummern = { a: "Nummern eintragen", run: async () => {
+    if (window.__lpServer) {
+      try {
+        const r = await fetch("/api/telefon", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ aktion: "zuweisen" }) });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && (j.vergeben || !j.hinweis)) { toast(j.vergeben ? `${j.vergeben} Tracking-Nummern vergeben${j.fehler?.length ? " – " + j.fehler[0] : ""}` : j.fehler?.[0] || "Alle Anzeigen haben eine Nummer."); return; }
+        if (j.hinweis) toast(j.hinweis + " Nummern bitte von Hand eintragen oder /telefon einrichten.");
+      } catch {}
+    }
     const list = S.anzeigen.filter((a) => !a.demo && a.datum && !a.trackingNummer).sort((x, y) => String(x.datum).localeCompare(String(y.datum)));
     if (!list.length) { showTab("anzeigen"); return; }
     actOpen("Tracking-Nummern eintragen", `<p class="hint">Je Anzeige eine eigene Rufnummer, damit jeder Anruf der richtigen Anzeige zugeordnet wird. Sobald Lokalpilot auf dem Server läuft, holt der Tracking-Agent die Nummern automatisch beim Rufnummern-Anbieter.</p><div class="numlist">${list.map((a) => `<label class="f"><span><b class="code">${esc(a.code)}</b> · ${esc(blattById(a.blattId)?.name || "")} · ${fmtDate(a.datum)}</span><input type="tel" data-num="${esc(a.id)}" placeholder="z. B. 05341 123 45 01"></label>`).join("")}</div>`, [{ label: "Speichern", cls: "primary", fn: async () => { let n = 0; for (const i of document.querySelectorAll("[data-num]")) { const v = i.value.trim(); if (v && await write(() => db.collection("anzeigen").doc(i.dataset.num).update({ trackingNummer: v }))) n++; } toast(`${n} Nummer${n === 1 ? "" : "n"} gespeichert`); actClose(); } }]);
@@ -561,8 +595,20 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
   const bildServer = () => !!window.__lpServer;
   const braucheBild = (a) => !a.demo && a.motiv && !a.motiv.bildUrl;
   const BILD_FEHLER = { capability_disabled: "Higgsfield-Schlüssel fehlt in Vercel.", kein_guthaben: "Higgsfield-Guthaben ist leer – bitte aufladen.", rate_limited: "Higgsfield ist gerade ausgelastet, gleich nochmal.", bild_nsfw: "Higgsfield hat das Motiv abgelehnt – Bildidee anpassen.", timeout: "Das Bild braucht zu lange – bitte nochmal versuchen." };
+  // Tracking-Nummer vom Server holen (Nummernpool), bevor Nummer/URL ins Bild gedruckt werden
+  async function trackingSichern(a) {
+    if (!window.__lpServer || a.trackingNummer || (a.kontaktwege?.length && !a.kontaktwege.includes("Telefon"))) return a;
+    try {
+      const r = await fetch("/api/telefon", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ aktion: "zuweisen", anzeigeIds: [a.id] }) });
+      const j = await r.json().catch(() => ({}));
+      const nr = j.zuordnung?.[a.id];
+      return nr ? { ...a, trackingNummer: nr } : a;
+    } catch { return a; }
+  }
   async function bildErzeugen(a) {
-    const r = await fetch("/api/bild", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ anzeigeId: a.id, prompt: a.motiv.bildPrompt || bildPrompt(a.motiv, a) }) });
+    a = await trackingSichern(a);
+    const prompt = a.trackingNummer ? bildPrompt(a.motiv, a) : a.motiv.bildPrompt || bildPrompt(a.motiv, a);
+    const r = await fetch("/api/bild", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ anzeigeId: a.id, prompt }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(BILD_FEHLER[j.code] || "Bild konnte nicht erzeugt werden.");
     return j.url;
@@ -668,15 +714,16 @@ Antworte nur mit JSON: {"zusammenfassung":"2 Sätze","platzierungen":[{"blattId"
       const limit = S.settings.limit == null || S.settings.limit === "" ? null : num(S.settings.limit); const auto = limit != null && total <= limit;
       kwLog(`${pl.length} Schaltungen geplant, ${eur(total)} von ${eur(budget)}.`);
       const kref = await db.collection("kampagnen").add({ name: $("kw-name").value.trim(), marke: marke(), kategorien: kats, ton, viral, von, bis, budget, blaetter: blaetter.map((b) => b.id), zusammenfassung: String(res.zusammenfassung || ""), planKosten: total, status: auto ? "Freigegeben" : "Wartet auf Freigabe", erstelltVon: "Kampagnen-Agent", kiKosten: [kiLauf], createdAt: Date.now(), ...(auto ? { freigegebenAm: Date.now() } : {}) });
-      kwLog("Kampagne angelegt. Lege Anzeigen mit Tracking-Codes an …");
+      const neueIds = []; kwLog("Kampagne angelegt. Lege Anzeigen mit Tracking-Codes an …");
       const code = nextCodeFactory(); let n = 0;
       for (const x of pl) {
         const b = blattById(x.blattId); const src = x.motivCode ? S.anzeigen.find((a) => a.code === x.motivCode && a.motiv) : null; const nu = x.neu || {};
         const body = { code: code(b.stadt, x.kategorie), kampagneId: kref.id, blattId: x.blattId, kategorie: x.kategorie, botschaft: src?.botschaft || "Emotion", ton: src?.ton || nu.ton || (ton === "Mix testen" ? "Humor" : ton), viral: src?.viral || nu.viral || (viral === "Agent wählt" ? "Klassisch" : viral), layout: src?.layout || nu.layout || "A", format: "q-hoch", kontaktwege: ["Telefon", "URL", "QR-Code"], datum: String(x.datum), kosten: Math.max(0, num(x.kosten)) || stdPreis(blattById(x.blattId), "q-hoch") || 0, kostenGeschaetzt: num(x.kosten) > 0 ? !!x.kostenGeschaetzt : !stdPreis(blattById(x.blattId), "q-hoch"), status: auto ? "freigegeben" : "geplant", trackingNummer: "", marke: marke(), notiz: "Kampagnen-Agent: " + String(x.begruendung || ""), createdAt: Date.now() };
         if (src) body.motiv = { ...src.motiv, vonAnzeige: src.code };
         else if (nu.headline) { body.motiv = { typ: "entwurf", headline: String(nu.headline), unterzeile: String(nu.unterzeile || ""), bullets: (Array.isArray(nu.bullets) ? nu.bullets : []).slice(0, 3).map(String), cta: String(nu.cta || "Jetzt anrufen:"), layout: body.layout, bildidee: String(nu.bildidee || "") }; body.motiv.bildPrompt = bildPrompt(body.motiv, body); }
-        await db.collection("anzeigen").add(body); n++;
+        const neu = await db.collection("anzeigen").add(body); n++; if (neu?.id) neueIds.push(neu.id);
       }
+      if (window.__lpServer && neueIds.length) fetch("/api/telefon", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ aktion: "zuweisen", anzeigeIds: neueIds }) }).then((r) => r.json()).then((j) => { if (j.vergeben) kwLog(`${j.vergeben} Tracking-Nummern vergeben.`); }).catch(() => {});
       kwLog(`${n} Anzeigen angelegt. ${auto ? "Automatisch freigegeben (unter Limit)." : limit == null ? "Kein Limit gesetzt: wartet auf eure Freigabe." : "Über Limit: wartet auf eure Freigabe."}`);
       toast(`Kampagne erstellt: ${n} Anzeigen`);
     } catch (err) { kwLog(err?.code ? sampleErr(err) : "Speichern fehlgeschlagen."); }
@@ -761,7 +808,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
         return `<div class="adcard" data-id="${esc(a.id)}"><div class="shot">${adPreview(a)}</div><div class="body"><div class="row1"><span class="code">${esc(a.code)}${a.demo ? ` · Beispiel` : ""}</span><span class="st ${esc(a.status)}">${esc(a.status)}</span></div>${a.motiv?.headline ? `<div class="hl">${esc(a.motiv.headline)}</div>` : ""}<div class="facts">${esc(b?.stadt || "—")} · ${a.datum ? fmtDate(a.datum) : "Termin offen"}<br>${facts}</div><div class="foot">${stat}${btns}</div></div></div>`; }).join("")}</div>`;
       return;
     }
-    $("ad-list").innerHTML = `<div class="tablewrap"><table><thead><tr><th>Code</th><th>Erscheint</th><th>Blatt</th><th>Motiv</th><th>Viral · Ton</th><th>Tracking</th><th class="num">Kosten</th><th class="num">Kont. / Leads</th><th>Status</th><th></th></tr></thead><tbody>${list.map((a) => { const s = adStats(a); const link = adLink(a); return `<tr data-id="${esc(a.id)}"><td class="code">${esc(a.code)}${a.demo ? ` <span class="chip demo">Beispiel</span>` : ""}</td><td>${fmtDate(a.datum)}</td><td class="wrap">${esc(blattById(a.blattId)?.name || "—")}</td><td class="wrap">${esc(a.motiv?.headline || "—")}</td><td>${esc(a.viral || "Klassisch")}<div class="muted">${esc(a.ton || "—")} · Layout ${esc(a.layout || "A")}</div></td><td class="wrap"><div>${esc((a.kontaktwege || []).join(", ") || "—")}</div><div class="muted">${a.trackingNummer ? "☎ " + esc(a.trackingNummer) : "Nummer fehlt"}${link ? "<br>" + esc(link) : ""}</div></td><td class="num">${a.kosten != null && a.kosten !== "" ? eur(a.kosten, 2) : "—"}</td><td class="num">${s.kontakte} / ${s.leads}</td><td>${a.demo ? `<span class="chip ${esc(a.status)}">${esc(a.status)}</span>` : `<select class="status" data-act="status" aria-label="Status ${esc(a.code)}">${options(STATUS, a.status)}</select>`}</td><td>${a.demo ? "" : `<div class="btns"><button class="b small ghost" data-act="edit">Bearbeiten</button><button class="b small danger" data-act="del">Löschen</button></div>`}</td></tr>`; }).join("")}</tbody></table></div>`;
+    $("ad-list").innerHTML = `<div class="tablewrap"><table><thead><tr><th>Code</th><th>Erscheint</th><th>Blatt</th><th>Motiv</th><th>Viral · Ton</th><th>Tracking</th><th class="num">Kosten</th><th class="num">Kont. / Leads</th><th>Status</th><th></th></tr></thead><tbody>${list.map((a) => { const s = adStats(a); const link = adLink(a); return `<tr data-id="${esc(a.id)}"><td class="code">${esc(a.code)}${a.demo ? ` <span class="chip demo">Beispiel</span>` : ""}</td><td>${fmtDate(a.datum)}</td><td class="wrap">${esc(blattById(a.blattId)?.name || "—")}</td><td class="wrap">${esc(a.motiv?.headline || "—")}</td><td>${esc(a.viral || "Klassisch")}<div class="muted">${esc(a.ton || "—")} · Layout ${esc(a.layout || "A")}</div></td><td class="wrap"><div>${esc((a.kontaktwege || []).join(", ") || "—")}</div><div class="muted">${a.trackingNummer ? "☎ " + esc(a.trackingNummer) : "Nummer fehlt"}${link ? "<br>" + esc(link) : ""}${trackingZeile(a)}</div></td><td class="num">${a.kosten != null && a.kosten !== "" ? eur(a.kosten, 2) : "—"}</td><td class="num">${s.kontakte} / ${s.leads}</td><td>${a.demo ? `<span class="chip ${esc(a.status)}">${esc(a.status)}</span>` : `<select class="status" data-act="status" aria-label="Status ${esc(a.code)}">${options(STATUS, a.status)}</select>`}</td><td>${a.demo ? "" : `<div class="btns"><button class="b small ghost" data-act="edit">Bearbeiten</button><button class="b small danger" data-act="del">Löschen</button></div>`}</td></tr>`; }).join("")}</tbody></table></div>`;
   }
   function resetAdForm() { editingAd = null; $("ad-form").reset(); $("ad-form-title").textContent = "Neue Anzeige"; $("a-save").textContent = "Anzeige anlegen"; $("a-cancel").hidden = true; $("a-status").value = "geplant"; $("a-format").value = "q-hoch"; $("a-ton").value = "Humor"; $("a-viral").value = "Klassisch"; $("a-layout").value = "A"; setChecks($("a-kontaktwege"), ["Telefon", "URL"]); fillSelects(); updateCodeHint(); }
   function editAd(a) {
@@ -788,6 +835,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
     const btn = e.target.closest("button[data-act]"); if (!btn) return; const a = adById(btn.closest("[data-id]").dataset.id); if (!a) return;
     if (btn.dataset.act === "edit") editAd(a);
     if (btn.dataset.act === "bild") bildButton(a, btn);
+    if (btn.dataset.act === "social") socialKit(a, btn);
     if (btn.dataset.act === "del") armDelete(btn, () => write(() => db.collection("anzeigen").doc(a.id).delete(), `Anzeige ${a.code} gelöscht`));
   });
   function setAdView(v) { adView = v; $("v-anzeigen").querySelector(".split").classList.toggle("full", v === "vorschau"); $("vt-neu").hidden = v !== "vorschau"; $("vt-vorschau").setAttribute("aria-pressed", String(v === "vorschau")); $("vt-liste").setAttribute("aria-pressed", String(v === "liste")); lsSet("lp-adview", v); renderAds(); }
@@ -913,7 +961,7 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
     const onErr = () => setConn("off", "Verbindung unterbrochen – neu laden");
     let pending = null; const schedule = () => { if (pending) return; pending = setTimeout(() => { pending = null; renderAll(); }, 30); };
     const sub = (name) => db.collection(name).onSnapshot((snap) => { S[name] = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })); schedule(); }, onErr);
-    sub("blaetter"); sub("anzeigen"); sub("kontakte"); sub("kampagnen");
+    sub("blaetter"); sub("anzeigen"); sub("kontakte"); sub("kampagnen"); sub("besuche");
     db.doc("einstellungen/allgemein").onSnapshot((snap) => {
       S.settings = { basisUrl: "", waNummer: "", marke: "", limit: null, erloes: null, erledigt: {}, ...(snap.exists ? snap.data() : {}) };
       $("crumb").textContent = marke(); $("side-marke").textContent = "Marke: " + marke();

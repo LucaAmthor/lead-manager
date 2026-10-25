@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import markup from "@/lib/markup";
 import { makeDb, sample, makeAssets } from "@/lib/lp-backend";
+import Softphone from "./_telefon/softphone";
 
 // Lokalpilot-Oberfläche. Die App-Logik (public/lokalpilot.js) stammt aus dem Prototyp und spricht über
 // window.claude.use("db" | "sample" | "assets") mit dem Backend. Hier hängen wir sie an Supabase und die KI-Route.
@@ -34,6 +35,24 @@ export default function Lokalpilot({ email }) {
       a.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M8 14l2.5 2.5L16 12"/></svg>Buchungen`;
       nav.appendChild(a);
     }
+    // Link zur Seite „WhatsApp“ (Chats, KI-Antworten, Übergabe an Menschen)
+    if (nav && !document.getElementById("lp-whatsapp-link")) {
+      const a = document.createElement("a");
+      a.id = "lp-whatsapp-link";
+      a.href = "/whatsapp";
+      a.style.cssText = "display:flex;align-items:center;gap:10px;font:500 14px/1 var(--body);color:var(--ink-2);border-radius:9px;padding:9px 10px;text-decoration:none";
+      a.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1.3-3.9A8 8 0 1 1 8 19z"/><path d="M9 10c0 3 2 5 5 5l1-1.5-2-1-1 1c-1 0-2-1-2-2l1-1-1-2z"/></svg>WhatsApp`;
+      nav.appendChild(a);
+    }
+    // Link zur Seite „Telefon“ (Anrufe, Rückrufe, Nummernpool)
+    if (nav && !document.getElementById("lp-telefon-link")) {
+      const a = document.createElement("a");
+      a.id = "lp-telefon-link";
+      a.href = "/telefon";
+      a.style.cssText = "display:flex;align-items:center;gap:10px;font:500 14px/1 var(--body);color:var(--ink-2);border-radius:9px;padding:9px 10px;text-decoration:none";
+      a.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>Telefon`;
+      nav.appendChild(a);
+    }
     // Leere Datenbank: Admin kann die Daten aus dem Prototyp mit einem Klick übernehmen
     fetch("/api/import").then((r) => (r.ok ? r.json() : null)).then((j) => {
       if (!j?.leer || !j.admin) return;
@@ -46,6 +65,11 @@ export default function Lokalpilot({ email }) {
       document.body.appendChild(box);
     }).catch(() => {});
   }, [email]);
-  return <div dangerouslySetInnerHTML={{ __html: markup }} />;
+  return (
+    <>
+      <div dangerouslySetInnerHTML={{ __html: markup }} />
+      <Softphone />
+    </>
+  );
 }
 
