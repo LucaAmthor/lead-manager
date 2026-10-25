@@ -323,7 +323,7 @@ function BuchungKarte({ b, blatt, anzeigen, mails, tun, cfg }) {
           {!!mails.length && (
             <>
               <h4>Mails</h4>
-              {mails.map((m) => <Mail key={m.id} m={m} />)}
+              {mails.map((m) => <Mail key={m.id} m={m} tun={tun} />)}
             </>
           )}
           {b.status === "wartet_freigabe" && (
@@ -350,17 +350,21 @@ function BuchungKarte({ b, blatt, anzeigen, mails, tun, cfg }) {
   );
 }
 
-function Mail({ m }) {
+function Mail({ m, tun }) {
   const [auf, setAuf] = useState(false);
+  const geplant = m.status === "geplant" || m.status === "sendet";
   return (
-    <div className={"bk-mail " + m.richtung}>
+    <div className={"bk-mail " + m.richtung + (geplant ? " geplant" : "")}>
       <div className="bk-mkopf" onClick={() => setAuf(!auf)}>
         <span>{m.richtung === "ein" ? "↘" : "↗"}</span>
         <b>{m.betreff}</b>
         <span>{m.richtung === "ein" ? m.von : m.an}</span>
         {m.klasse && <span className="bk-tag">{m.klasse}</span>}
+        {geplant && <span className="bk-tag">geplant {zeit(m.sendeAb)}</span>}
+        {m.status === "verworfen" && <span className="bk-tag">nicht gesendet</span>}
         <span className="bk-zeit">{zeit(m.zeit)}</span>
       </div>
+      {m.status === "geplant" && tun && <div className="bk-aktionen"><button className="b" onClick={() => tun({ aktion: "jetzt_senden", mailId: m.id }, "Gesendet")}>Jetzt senden</button>{m.fehler && <span className="bk-warn">Letzter Versuch: {m.fehler}</span>}</div>}
       {m.zusammenfassung && !auf && <p className="bk-msum">{m.zusammenfassung}</p>}
       {auf && <pre className="bk-mtext">{m.text}</pre>}
     </div>
@@ -442,6 +446,9 @@ function Einstellungen({ cfg, speichern }) {
         <label>Monatslimit Buchungen (€ netto, leer = keins)<input type="number" value={v.monatsLimit ?? ""} onChange={(e) => set("monatsLimit", n(e.target.value))} /></label>
         <label>Nachfassen nach … Werktagen<input type="number" value={v.nachfassenNachTagen ?? 2} onChange={(e) => set("nachfassenNachTagen", n(e.target.value))} /></label>
         <label>Nachverhandeln: Ziel-Rabatt (%, 0 = aus)<input type="number" value={v.zielRabattProzent ?? 15} onChange={(e) => set("zielRabattProzent", n(e.target.value))} /></label>
+        <label>Antwort frühestens nach … Min.<input type="number" value={v.abstandMinMin ?? 20} onChange={(e) => set("abstandMinMin", n(e.target.value))} /></label>
+        <label>Antwort spätestens nach … Min.<input type="number" value={v.abstandMaxMin ?? 90} onChange={(e) => set("abstandMaxMin", n(e.target.value))} /></label>
+        <label>Nur zu Bürozeiten senden (Mo–Fr 8–17:30)<select value={v.geschaeftszeiten === false ? "nein" : "ja"} onChange={(e) => set("geschaeftszeiten", e.target.value === "ja")}><option value="ja">Ja</option><option value="nein">Nein</option></select></label>
         <label style={{ gridColumn: "1 / -1" }}>Druckdaten-Angaben (antwortet der Agent auf Fragen zu Format/PDF; leer = Standard)<textarea rows={2} value={v.druckSpezifikation || ""} placeholder="PDF in exakter Endgröße, 300 dpi, 4c, Schriften eingebettet, ohne Beschnitt" onChange={(e) => set("druckSpezifikation", e.target.value)} /></label>
       </div>
       <h3>Firma / Rechnungsadresse</h3>

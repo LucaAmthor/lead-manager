@@ -1,6 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { planen, weiter, freigeben, antwortSenden, wegPruefen } from "@/lib/buchung/agent";
+import { planen, weiter, freigeben, antwortSenden, wegPruefen, postausgang } from "@/lib/buchung/agent";
 import { holen, aendern, verlauf, adminDb, geheimnisSetzen, einstellungen } from "@/lib/buchung/db";
 import { senden } from "@/lib/buchung/mail";
 
@@ -74,6 +74,11 @@ export async function POST(request) {
         for (const aid of b.anzeigeIds || []) await aendern("anzeigen", aid, { buchungGesperrt: true, buchungHinweis: "Buchung von Hand abgebrochen" });
         await verlauf(id, `Abgebrochen (${user.email}). Bereits verschickte Zusagen bitte beim Verlag stornieren.`, "abbruch", { status: "abgebrochen" });
         return NextResponse.json({ ok: true });
+      }
+      case "jetzt_senden": {
+        const r = await postausgang({ sofortId: String(body.mailId || "") });
+        if (r.fehler.length) return fehler("mail_fehler", 500, { detail: r.fehler.join("; ") });
+        return NextResponse.json({ ok: true, ...r });
       }
       case "bezahlt": {
         const b = await holen("buchungen", id);

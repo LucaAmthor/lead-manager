@@ -8,6 +8,10 @@
       "schedule": "7 * * * *"
     },
     {
+      "path": "/api/buchung/postausgang",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/telefon/cron",
       "schedule": "23 * * * *"
     }

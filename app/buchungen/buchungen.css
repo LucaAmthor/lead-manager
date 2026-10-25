@@ -105,3 +105,4 @@ button.b:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 .bk-preisraster .bk-hint{font-size:11px;min-height:14px}
 
 .bk-warn { color: #b42318; font-weight: 600; }
+.bk-mail.geplant { opacity: .75; border-style: dashed; }
