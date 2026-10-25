@@ -36,6 +36,10 @@
     { id: "3x140", label: "3 Sp. × 140 mm", w: 141, h: 140 }, { id: "q-hoch", label: "1/4 Seite hoch", w: 141, h: 200 },
     { id: "h-quer", label: "1/2 Seite quer", w: 282, h: 200 }, { id: "ganz", label: "1/1 Seite", w: 282, h: 400 },
   ];
+  // Standardpreis (netto) je Blatt und Format – gleiche Regel wie im Buchungs-Agenten (lib/buchung/regeln.js)
+  const SPALTEN_MM = { "1x60": { sp: 1, h: 60 }, "2x95": { sp: 2, h: 95 }, "3x140": { sp: 3, h: 140 } };
+  const stdPreis = (b, fid) => { const p = b?.buchung || {}; const fest = num(p.preise?.[fid]); if (fest > 0) return fest; const mm = num(p.mmPreis), s = SPALTEN_MM[fid]; return mm > 0 && s ? Math.round(mm * s.sp * s.h * 100) / 100 : 0; };
+  const stdPreisListe = (b) => Object.fromEntries(FORMATE.map((f) => [f.label, stdPreis(b, f.id)]).filter(([, v]) => v > 0));
   const KANAELE = ["Telefon", "WhatsApp", "QR-Code", "URL"];
   const KONTAKT_KANAELE = [...KANAELE, "Coupon", "Sonstiges"];
   const STATUS = ["geplant", "freigegeben", "gebucht", "erschienen", "beendet"];
@@ -442,6 +446,8 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
       { k: "Qualifizierte Leads", v: int(leads), s: kontakte ? `${pct(leads / kontakte)} der Kontakte` : "—" },
       { k: "Kosten pro Lead", v: cpl == null ? "—" : eur(cpl), s: "Gesamtkosten ÷ Leads", hl: true },
       { k: "Deckungsbeitrag", v: eur(erloes - kosten), s: `Erlös ${eur(erloes)} · ${verkauft} verkauft` },
+      { k: "Erlös je Euro", v: kosten ? (erloes / kosten).toLocaleString("de-DE", { maximumFractionDigits: 2 }) + " €" : "—", s: leads ? `${pct(verkauft / leads)} der Leads verkauft` : "Erlös ÷ Gesamtkosten" },
+      (() => { let liste = 0, bezahlt = 0; ads.forEach((a) => { const sp = stdPreis(blattById(a.blattId), a.format); if (sp && num(a.kosten)) { liste += sp; bezahlt += num(a.kosten); } }); return { k: "Ggü. Listenpreis", v: liste ? eur(liste - bezahlt) : "—", s: liste ? `${pct(Math.max(0, 1 - bezahlt / liste))} gespart · Liste ${eur(liste)}` : "Standardpreise je Blatt unter Buchungen eintragen" }; })(),
     ].map((t) => `<div class="tile${t.hl ? " hl" : ""}"><div class="k">${t.k}</div><div class="v">${t.v}</div><div class="s">${t.s}</div></div>`).join("");
     $("kpi-note").textContent = ads.length ? "" : "Zählt erst, wenn eine Anzeige den Status „erschienen“ hat.";
     renderKosten(kf); renderCpm(ads);
@@ -634,7 +640,7 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
     if (!von || !bis || bis < von) { toast("Zeitraum prüfen."); return; }
     if (!budget) { toast("Budget eintragen."); return; }
     const ton = $("kw-ton").value, viral = $("kw-viral").value, motive = $("kw-motive").value;
-    const bl = blaetter.map((b) => ({ id: b.id, name: b.name, stadt: b.stadt, erscheint: b.tag, auflage: b.auflage, preise: b.preisInfo || "unbekannt", termine: erscheinungstermine(b, von, bis) }));
+    const bl = blaetter.map((b) => ({ id: b.id, name: b.name, stadt: b.stadt, erscheint: b.tag, auflage: b.auflage, preise: b.preisInfo || "unbekannt", standardpreiseNetto: stdPreisListe(b), termine: erscheinungstermine(b, von, bis) }));
     if (!bl.some((b) => b.termine.length)) { toast("Im Zeitraum erscheint keines der Blätter."); return; }
     const bib = motive === "neu" ? [] : S.anzeigen.filter((a) => !a.demo && a.motiv && kats.includes(a.kategorie)).map((a) => ({ code: a.code, kategorie: a.kategorie, ton: a.ton, viral: a.viral, headline: a.motiv.headline, kontakte: adStats(a).kontakte, leads: adStats(a).leads }));
     const model = trainModel(A()); const prog = model ? bl.flatMap((b) => kats.map((k) => VIRAL.map((v) => ({ stadt: b.stadt, kategorie: k, viral: v.id, cplPrognose: Math.round(predict(model, { kategorie: k, viral: v.id, stadt: b.stadt }).cpl || 0) })))).flat().sort((x, y) => x.cplPrognose - y.cplPrognose).slice(0, 12) : [];
@@ -666,7 +672,7 @@ Antworte nur mit JSON: {"zusammenfassung":"2 Sätze","platzierungen":[{"blattId"
       const code = nextCodeFactory(); let n = 0;
       for (const x of pl) {
         const b = blattById(x.blattId); const src = x.motivCode ? S.anzeigen.find((a) => a.code === x.motivCode && a.motiv) : null; const nu = x.neu || {};
-        const body = { code: code(b.stadt, x.kategorie), kampagneId: kref.id, blattId: x.blattId, kategorie: x.kategorie, botschaft: src?.botschaft || "Emotion", ton: src?.ton || nu.ton || (ton === "Mix testen" ? "Humor" : ton), viral: src?.viral || nu.viral || (viral === "Agent wählt" ? "Klassisch" : viral), layout: src?.layout || nu.layout || "A", format: "q-hoch", kontaktwege: ["Telefon", "URL", "QR-Code"], datum: String(x.datum), kosten: Math.max(0, num(x.kosten)), kostenGeschaetzt: !!x.kostenGeschaetzt, status: auto ? "freigegeben" : "geplant", trackingNummer: "", marke: marke(), notiz: "Kampagnen-Agent: " + String(x.begruendung || ""), createdAt: Date.now() };
+        const body = { code: code(b.stadt, x.kategorie), kampagneId: kref.id, blattId: x.blattId, kategorie: x.kategorie, botschaft: src?.botschaft || "Emotion", ton: src?.ton || nu.ton || (ton === "Mix testen" ? "Humor" : ton), viral: src?.viral || nu.viral || (viral === "Agent wählt" ? "Klassisch" : viral), layout: src?.layout || nu.layout || "A", format: "q-hoch", kontaktwege: ["Telefon", "URL", "QR-Code"], datum: String(x.datum), kosten: Math.max(0, num(x.kosten)) || stdPreis(blattById(x.blattId), "q-hoch") || 0, kostenGeschaetzt: num(x.kosten) > 0 ? !!x.kostenGeschaetzt : !stdPreis(blattById(x.blattId), "q-hoch"), status: auto ? "freigegeben" : "geplant", trackingNummer: "", marke: marke(), notiz: "Kampagnen-Agent: " + String(x.begruendung || ""), createdAt: Date.now() };
         if (src) body.motiv = { ...src.motiv, vonAnzeige: src.code };
         else if (nu.headline) { body.motiv = { typ: "entwurf", headline: String(nu.headline), unterzeile: String(nu.unterzeile || ""), bullets: (Array.isArray(nu.bullets) ? nu.bullets : []).slice(0, 3).map(String), cta: String(nu.cta || "Jetzt anrufen:"), layout: body.layout, bildidee: String(nu.bildidee || "") }; body.motiv.bildPrompt = bildPrompt(body.motiv, body); }
         await db.collection("anzeigen").add(body); n++;
@@ -740,7 +746,9 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
     if (B().length) box.dataset.init = "1";
   }
   function nextCode(blatt, kat) { return nextCodeFactory()(blatt.stadt, kat); }
-  function updateCodeHint() { if (editingAd) { const a = adById(editingAd); $("a-codehint").innerHTML = a ? `Code <span class="code">${esc(a.code)}</span> bleibt gleich.` : ""; return; } const b = blattById($("a-blatt").value); $("a-codehint").innerHTML = b ? `Neuer Code: <span class="code">${esc(nextCode(b, $("a-kategorie").value))}</span>` : ""; }
+  function updateKostenHint() { const sp = stdPreis(blattById($("a-blatt").value), $("a-format").value); $("a-kosten").placeholder = sp ? `leer = Standardpreis ${eur(sp)}` : ""; }
+  ["a-blatt", "a-format"].forEach((id) => document.getElementById(id)?.addEventListener("change", () => updateKostenHint()));
+  function updateCodeHint() { updateKostenHint(); if (editingAd) { const a = adById(editingAd); $("a-codehint").innerHTML = a ? `Code <span class="code">${esc(a.code)}</span> bleibt gleich.` : ""; return; } const b = blattById($("a-blatt").value); $("a-codehint").innerHTML = b ? `Neuer Code: <span class="code">${esc(nextCode(b, $("a-kategorie").value))}</span>` : ""; }
   function renderAds() {
     const f = $("ad-filter").value, kf = $("ad-kampagne").value;
     const list = A().filter((a) => (!f || a.status === f) && (!kf || a.kampagneId === kf)).sort((x, y) => (!!x.demo - !!y.demo) || String(y.datum || "9").localeCompare(String(x.datum || "9")) || String(x.code).localeCompare(String(y.code)));
@@ -764,7 +772,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
   }
   $("ad-form").addEventListener("submit", async (e) => {
     e.preventDefault(); const blatt = blattById($("a-blatt").value); if (!blatt) { toast("Bitte ein Blatt wählen."); return; }
-    const body = { kampagneId: $("a-kampagne").value, blattId: blatt.id, kategorie: $("a-kategorie").value, botschaft: $("a-botschaft").value, ton: $("a-ton").value, viral: $("a-viral").value, layout: $("a-layout").value, format: $("a-format").value, kontaktwege: readChecks($("a-kontaktwege")), datum: $("a-datum").value || "", kosten: $("a-kosten").value === "" ? null : num($("a-kosten").value), status: $("a-status").value, trackingNummer: $("a-nummer").value.trim(), notiz: $("a-notiz").value.trim() };
+    const body = { kampagneId: $("a-kampagne").value, blattId: blatt.id, kategorie: $("a-kategorie").value, botschaft: $("a-botschaft").value, ton: $("a-ton").value, viral: $("a-viral").value, layout: $("a-layout").value, format: $("a-format").value, kontaktwege: readChecks($("a-kontaktwege")), datum: $("a-datum").value || "", kosten: $("a-kosten").value === "" ? (stdPreis(blatt, $("a-format").value) || null) : num($("a-kosten").value), status: $("a-status").value, trackingNummer: $("a-nummer").value.trim(), notiz: $("a-notiz").value.trim() };
     if (editingAd) { if (await write(() => db.collection("anzeigen").doc(editingAd).update(body), "Anzeige gespeichert")) resetAdForm(); }
     else { const code = nextCode(blatt, body.kategorie); if (await write(() => db.collection("anzeigen").add({ ...body, code, marke: marke(), createdAt: Date.now() }), `Anzeige ${code} angelegt`)) resetAdForm(); }
   });

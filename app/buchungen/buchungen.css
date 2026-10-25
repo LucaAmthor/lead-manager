@@ -98,3 +98,8 @@ button.b:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
   .bk-mkopf{grid-template-columns:16px 1fr auto}
   .bk-mkopf>span:nth-child(3){display:none}
 }
+.bk-preise{margin:6px 0 2px}
+.bk-preise summary{cursor:pointer;font-size:13px}
+.bk-preisraster{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:6px}
+.bk-preisraster label{display:flex;flex-direction:column;gap:2px;font-size:12px}
+.bk-preisraster .bk-hint{font-size:11px;min-height:14px}

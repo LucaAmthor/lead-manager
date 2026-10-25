@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { buchungsweg, STATUS_TEXT, OFFEN, eur, datumLang, tageBis, heuteISO } from "@/lib/buchung/regeln";
+import { buchungsweg, STATUS_TEXT, OFFEN, eur, datumLang, tageBis, heuteISO, FORMATE, standardpreis } from "@/lib/buchung/regeln";
 
 // Seite „Buchungen“: was der Buchungs-Agent tut, wo er Hilfe braucht, wie jedes Blatt gebucht wird.
 const SAMMLUNGEN = ["blaetter", "anzeigen", "buchungen", "buchung_mails", "einstellungen", "kampagnen"];
@@ -236,7 +236,7 @@ function Faellig({ anzeigen, blatt, cfg, tun }) {
                   <td className="mono">{a.code}</td>
                   <td>{bl?.name || "?"}</td>
                   <td>{a.datum ? `${datumLang(a.datum)} (${t} T.)` : "offen"}</td>
-                  <td>{a.kosten ? eur(a.kosten) : "–"}</td>
+                  <td>{a.kosten ? eur(a.kosten) : (() => { const sp = standardpreis(bl, a.format); return sp.preis ? <span title={`Standardpreis aus ${sp.quelle}`}>{eur(sp.preis)} <span className="muted">(Standard)</span></span> : "–"; })()}</td>
                   <td>{w.weg === "shop" ? "Shop" : w.weg === "anfrage" ? "E-Mail" : <span className="crit">fehlt</span>}</td>
                   <td>
                     {a.status}
@@ -291,6 +291,7 @@ function BuchungKarte({ b, blatt, anzeigen, mails, tun, cfg }) {
             <div>
               <h4>Anzeigen</h4>
               <ul className="bk-liste">{anzeigen.map((a) => <li key={a.id}><span className="mono">{a.code}</span> · {datumLang(a.datum)} · {a.status}{a.kosten ? ` · ${eur(a.kosten)}` : ""}</li>)}</ul>
+              {b.kennzahlen && <Kennzahlen k={b.kennzahlen} />}
               {b.angebot && (
                 <>
                   <h4>Angebot / Bestätigung</h4>
@@ -392,6 +393,7 @@ function Blaetter({ blaetter, speichern, tun, zugaenge }) {
                   <input type="number" defaultValue={b.buchung?.formatMm?.h || ""} onBlur={(e) => speichern(b, { formatMm: { ...(b.buchung?.formatMm || {}), h: Number(e.target.value) || null } })} />
                 </span>
               </label>
+              <Preise b={b} speichern={speichern} />
               <div className="bk-blfuss">
                 {host && <span className={zugaenge.some((z) => z.host === host) ? "good" : "muted"}>{zugaenge.some((z) => z.host === host) ? `Shop-Zugang ${host} hinterlegt` : `Kein Zugang für ${host} (Agent legt bei Bedarf eins an)`}</span>}
                 <button className="b small ghost" disabled={b.buchungRecherche?.laeuft} onClick={() => tun({ aktion: "weg_pruefen", blattId: b.id }, "Recherche gestartet (dauert ein paar Minuten)")}>{b.buchungRecherche?.laeuft ? "Prüft …" : "Weg prüfen (KI)"}</button>
@@ -447,6 +449,56 @@ function Einstellungen({ cfg, speichern }) {
       <div className="bk-aktionen">
         <button className="b primary" disabled={!f} onClick={async () => { await speichern(v); setF(null); }}>Speichern</button>
         <span className="bk-hint">Höchstpreis je Buchung = geplante Kosten + Toleranz. Ohne geplante Kosten: was vom Kampagnen-Limit frei ist. Darüber wartet der Agent auf eure Freigabe.</span>
+      </div>
+    </details>
+  );
+}
+
+
+// Kennzahlen einer abgeschlossenen Buchung (netto)
+function Kennzahlen({ k }) {
+  const z = (v, f) => (v == null ? null : f(v));
+  const teile = [
+    z(k.tkp, (v) => `TKP ${eur(v)} je 1.000 Exemplare`),
+    z(k.auflage, (v) => `Auflage ${Number(v).toLocaleString("de-DE")}`),
+    z(k.listenpreis, (v) => `Listenpreis ${eur(v)}`),
+    z(k.rabattProzent, (v) => (v > 0 ? `${v.toLocaleString("de-DE")} % unter Liste` : v < 0 ? `${(-v).toLocaleString("de-DE")} % über Liste` : "zum Listenpreis")),
+    z(k.planAbweichungProzent, (v) => `${v > 0 ? "+" : ""}${v.toLocaleString("de-DE")} % ggü. Plan`),
+    z(k.preisJeMm, (v) => `${eur(v)} je Spalten-mm`),
+  ].filter(Boolean);
+  if (!teile.length) return null;
+  return (<><h4>Kennzahlen</h4><p className="bk-hint">{teile.join(" · ")}</p></>);
+}
+
+// Standardpreise eines Blatts je Format (netto, aus der Preisliste). Der Agent nimmt sie, wenn bei einer Anzeige keine Kosten stehen.
+function Preise({ b, speichern }) {
+  const p = b.buchung?.preise || {};
+  const auf = Number(b.auflage) || 0;
+  const zahl = (v) => { const n = Number(String(v).replace(",", ".")); return Number.isFinite(n) && n > 0 ? n : null; };
+  const setzen = (fid, v) => {
+    const neu = { ...p };
+    const n = zahl(v);
+    if (n) neu[fid] = n; else delete neu[fid];
+    speichern(b, { preise: neu });
+  };
+  return (
+    <details className="bk-preise">
+      <summary>Standardpreise (netto){Object.keys(p).length ? ` · ${Object.keys(p).length} Format(e)` : ""}{auf ? ` · Auflage ${auf.toLocaleString("de-DE")}` : " · Auflage fehlt"}</summary>
+      <p className="bk-hint">Aus der Preisliste des Verlags (Direkt-/Ortspreis). Bis Preis + Toleranz sagt der Agent ohne Rückfrage zu, wenn bei der Anzeige keine eigenen Kosten stehen.</p>
+      <div className="bk-preisraster">
+        {Object.entries(FORMATE).map(([fid, f]) => {
+          const sp = standardpreis(b, fid);
+          return (
+            <label key={fid}>{f.label}
+              <input inputMode="decimal" defaultValue={p[fid] ?? ""} placeholder={sp.quelle === "mm-Preis" ? `${sp.preis} (mm)` : "€"} onBlur={(e) => String(p[fid] ?? "") !== e.target.value && setzen(fid, e.target.value)} />
+              <span className="bk-hint">{sp.preis && auf ? `TKP ${eur(sp.preis / (auf / 1000))}` : " "}</span>
+            </label>
+          );
+        })}
+        <label>mm-Preis (€ je Spalten-mm)
+          <input inputMode="decimal" defaultValue={b.buchung?.mmPreis ?? ""} placeholder="z. B. 2,36" onBlur={(e) => speichern(b, { mmPreis: zahl(e.target.value) })} />
+          <span className="bk-hint">für Spaltenformate ohne festen Preis</span>
+        </label>
       </div>
     </details>
   );
