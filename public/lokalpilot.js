@@ -356,7 +356,15 @@ Klar, kurz, DSGVO-orientiert, kein Rechtsrat. Antworte nur mit JSON: {"einwillig
   };
   const upcoming = () => S.anzeigen.filter((a) => !a.demo && a.datum && ["geplant", "freigegeben"].includes(a.status) && a.datum >= todayISO()).sort((x, y) => String(x.datum).localeCompare(String(y.datum)));
   ACTIONS.gebucht = { a: "Buchung vorbereiten", run: () => { const u = upcoming().slice(0, 8); if (!u.length) { toast("Keine geplanten Anzeigen mit Termin."); showTab("kampagnen"); return; } bookingAction(u); } };
-  ACTIONS.nummern = { a: "Nummern eintragen", run: () => {
+  ACTIONS.nummern = { a: "Nummern eintragen", run: async () => {
+    if (window.__lpServer) {
+      try {
+        const r = await fetch("/api/telefon", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ aktion: "zuweisen" }) });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && (j.vergeben || !j.hinweis)) { toast(j.vergeben ? `${j.vergeben} Tracking-Nummern vergeben${j.fehler?.length ? " – " + j.fehler[0] : ""}` : j.fehler?.[0] || "Alle Anzeigen haben eine Nummer."); return; }
+        if (j.hinweis) toast(j.hinweis + " Nummern bitte von Hand eintragen oder /telefon einrichten.");
+      } catch {}
+    }
     const list = S.anzeigen.filter((a) => !a.demo && a.datum && !a.trackingNummer).sort((x, y) => String(x.datum).localeCompare(String(y.datum)));
     if (!list.length) { showTab("anzeigen"); return; }
     actOpen("Tracking-Nummern eintragen", `<p class="hint">Je Anzeige eine eigene Rufnummer, damit jeder Anruf der richtigen Anzeige zugeordnet wird. Sobald Lokalpilot auf dem Server läuft, holt der Tracking-Agent die Nummern automatisch beim Rufnummern-Anbieter.</p><div class="numlist">${list.map((a) => `<label class="f"><span><b class="code">${esc(a.code)}</b> · ${esc(blattById(a.blattId)?.name || "")} · ${fmtDate(a.datum)}</span><input type="tel" data-num="${esc(a.id)}" placeholder="z. B. 05341 123 45 01"></label>`).join("")}</div>`, [{ label: "Speichern", cls: "primary", fn: async () => { let n = 0; for (const i of document.querySelectorAll("[data-num]")) { const v = i.value.trim(); if (v && await write(() => db.collection("anzeigen").doc(i.dataset.num).update({ trackingNummer: v }))) n++; } toast(`${n} Nummer${n === 1 ? "" : "n"} gespeichert`); actClose(); } }]);
@@ -561,8 +569,20 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
   const bildServer = () => !!window.__lpServer;
   const braucheBild = (a) => !a.demo && a.motiv && !a.motiv.bildUrl;
   const BILD_FEHLER = { capability_disabled: "Higgsfield-Schlüssel fehlt in Vercel.", kein_guthaben: "Higgsfield-Guthaben ist leer – bitte aufladen.", rate_limited: "Higgsfield ist gerade ausgelastet, gleich nochmal.", bild_nsfw: "Higgsfield hat das Motiv abgelehnt – Bildidee anpassen.", timeout: "Das Bild braucht zu lange – bitte nochmal versuchen." };
+  // Tracking-Nummer vom Server holen (Nummernpool), bevor Nummer/URL ins Bild gedruckt werden
+  async function trackingSichern(a) {
+    if (!window.__lpServer || a.trackingNummer || (a.kontaktwege?.length && !a.kontaktwege.includes("Telefon"))) return a;
+    try {
+      const r = await fetch("/api/telefon", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ aktion: "zuweisen", anzeigeIds: [a.id] }) });
+      const j = await r.json().catch(() => ({}));
+      const nr = j.zuordnung?.[a.id];
+      return nr ? { ...a, trackingNummer: nr } : a;
+    } catch { return a; }
+  }
   async function bildErzeugen(a) {
-    const r = await fetch("/api/bild", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ anzeigeId: a.id, prompt: a.motiv.bildPrompt || bildPrompt(a.motiv, a) }) });
+    a = await trackingSichern(a);
+    const prompt = a.trackingNummer ? bildPrompt(a.motiv, a) : a.motiv.bildPrompt || bildPrompt(a.motiv, a);
+    const r = await fetch("/api/bild", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ anzeigeId: a.id, prompt }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(BILD_FEHLER[j.code] || "Bild konnte nicht erzeugt werden.");
     return j.url;
@@ -668,15 +688,16 @@ Antworte nur mit JSON: {"zusammenfassung":"2 Sätze","platzierungen":[{"blattId"
       const limit = S.settings.limit == null || S.settings.limit === "" ? null : num(S.settings.limit); const auto = limit != null && total <= limit;
       kwLog(`${pl.length} Schaltungen geplant, ${eur(total)} von ${eur(budget)}.`);
       const kref = await db.collection("kampagnen").add({ name: $("kw-name").value.trim(), marke: marke(), kategorien: kats, ton, viral, von, bis, budget, blaetter: blaetter.map((b) => b.id), zusammenfassung: String(res.zusammenfassung || ""), planKosten: total, status: auto ? "Freigegeben" : "Wartet auf Freigabe", erstelltVon: "Kampagnen-Agent", kiKosten: [kiLauf], createdAt: Date.now(), ...(auto ? { freigegebenAm: Date.now() } : {}) });
-      kwLog("Kampagne angelegt. Lege Anzeigen mit Tracking-Codes an …");
+      const neueIds = []; kwLog("Kampagne angelegt. Lege Anzeigen mit Tracking-Codes an …");
       const code = nextCodeFactory(); let n = 0;
       for (const x of pl) {
         const b = blattById(x.blattId); const src = x.motivCode ? S.anzeigen.find((a) => a.code === x.motivCode && a.motiv) : null; const nu = x.neu || {};
         const body = { code: code(b.stadt, x.kategorie), kampagneId: kref.id, blattId: x.blattId, kategorie: x.kategorie, botschaft: src?.botschaft || "Emotion", ton: src?.ton || nu.ton || (ton === "Mix testen" ? "Humor" : ton), viral: src?.viral || nu.viral || (viral === "Agent wählt" ? "Klassisch" : viral), layout: src?.layout || nu.layout || "A", format: "q-hoch", kontaktwege: ["Telefon", "URL", "QR-Code"], datum: String(x.datum), kosten: Math.max(0, num(x.kosten)) || stdPreis(blattById(x.blattId), "q-hoch") || 0, kostenGeschaetzt: num(x.kosten) > 0 ? !!x.kostenGeschaetzt : !stdPreis(blattById(x.blattId), "q-hoch"), status: auto ? "freigegeben" : "geplant", trackingNummer: "", marke: marke(), notiz: "Kampagnen-Agent: " + String(x.begruendung || ""), createdAt: Date.now() };
         if (src) body.motiv = { ...src.motiv, vonAnzeige: src.code };
         else if (nu.headline) { body.motiv = { typ: "entwurf", headline: String(nu.headline), unterzeile: String(nu.unterzeile || ""), bullets: (Array.isArray(nu.bullets) ? nu.bullets : []).slice(0, 3).map(String), cta: String(nu.cta || "Jetzt anrufen:"), layout: body.layout, bildidee: String(nu.bildidee || "") }; body.motiv.bildPrompt = bildPrompt(body.motiv, body); }
-        await db.collection("anzeigen").add(body); n++;
+        const neu = await db.collection("anzeigen").add(body); n++; if (neu?.id) neueIds.push(neu.id);
       }
+      if (window.__lpServer && neueIds.length) fetch("/api/telefon", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ aktion: "zuweisen", anzeigeIds: neueIds }) }).then((r) => r.json()).then((j) => { if (j.vergeben) kwLog(`${j.vergeben} Tracking-Nummern vergeben.`); }).catch(() => {});
       kwLog(`${n} Anzeigen angelegt. ${auto ? "Automatisch freigegeben (unter Limit)." : limit == null ? "Kein Limit gesetzt: wartet auf eure Freigabe." : "Über Limit: wartet auf eure Freigabe."}`);
       toast(`Kampagne erstellt: ${n} Anzeigen`);
     } catch (err) { kwLog(err?.code ? sampleErr(err) : "Speichern fehlgeschlagen."); }
