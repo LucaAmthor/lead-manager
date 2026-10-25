@@ -103,3 +103,5 @@ button.b:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 .bk-preisraster{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:6px}
 .bk-preisraster label{display:flex;flex-direction:column;gap:2px;font-size:12px}
 .bk-preisraster .bk-hint{font-size:11px;min-height:14px}
+
+.bk-warn { color: #b42318; font-weight: 600; }

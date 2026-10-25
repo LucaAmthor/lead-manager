@@ -292,6 +292,8 @@ function BuchungKarte({ b, blatt, anzeigen, mails, tun, cfg }) {
               <h4>Anzeigen</h4>
               <ul className="bk-liste">{anzeigen.map((a) => <li key={a.id}><span className="mono">{a.code}</span> · {datumLang(a.datum)} · {a.status}{a.kosten ? ` · ${eur(a.kosten)}` : ""}</li>)}</ul>
               {b.kennzahlen && <Kennzahlen k={b.kennzahlen} />}
+              {b.kombiBewertung && <Kombi k={b.kombiBewertung} />}
+              {b.zahlung && <Zahlung z={b.zahlung} bezahlt={() => tun({ aktion: "bezahlt", id: b.id }, "Als bezahlt markiert")} />}
               {b.angebot && (
                 <>
                   <h4>Angebot / Bestätigung</h4>
@@ -440,6 +442,7 @@ function Einstellungen({ cfg, speichern }) {
         <label>Monatslimit Buchungen (€ netto, leer = keins)<input type="number" value={v.monatsLimit ?? ""} onChange={(e) => set("monatsLimit", n(e.target.value))} /></label>
         <label>Nachfassen nach … Werktagen<input type="number" value={v.nachfassenNachTagen ?? 2} onChange={(e) => set("nachfassenNachTagen", n(e.target.value))} /></label>
         <label>Nachverhandeln: Ziel-Rabatt (%, 0 = aus)<input type="number" value={v.zielRabattProzent ?? 15} onChange={(e) => set("zielRabattProzent", n(e.target.value))} /></label>
+        <label style={{ gridColumn: "1 / -1" }}>Druckdaten-Angaben (antwortet der Agent auf Fragen zu Format/PDF; leer = Standard)<textarea rows={2} value={v.druckSpezifikation || ""} placeholder="PDF in exakter Endgröße, 300 dpi, 4c, Schriften eingebettet, ohne Beschnitt" onChange={(e) => set("druckSpezifikation", e.target.value)} /></label>
       </div>
       <h3>Firma / Rechnungsadresse</h3>
       <div className="bk-grid">
@@ -455,6 +458,31 @@ function Einstellungen({ cfg, speichern }) {
   );
 }
 
+
+// Kombi-Angebot des Verlags und wie der Agent es bewertet hat
+function Kombi({ k }) {
+  return (<><h4>Kombi-Angebot</h4><p className="bk-hint">{k.gut ? "Gutes Angebot" : "Kein gutes Angebot"}{k.jeAnzeige != null ? ` · ${eur(k.jeAnzeige)} je Anzeige` : ""}{k.rabatt != null ? ` · ${k.rabatt} % unter Liste` : ""}{k.tkp != null ? ` · TKP ${eur(k.tkp)}` : ""}{k.frei != null ? ` · Budget frei ${eur(k.frei)}` : ""}</p>{k.bewertung && <p className="bk-hint">{k.bewertung}</p>}</>);
+}
+
+// Vorkasse: vom Agenten geprüfte Zahlungsdaten. Überwiesen wird (noch) von Hand.
+function Zahlung({ z, bezahlt }) {
+  const fertig = z.status === "bezahlt";
+  return (
+    <>
+      <h4>Zahlung ({z.art === "vorkasse" ? "Vorkasse" : z.art || "–"})</h4>
+      <ul className="bk-liste">
+        {z.betrag != null && <li>Betrag: {eur(z.betrag)}{z.betragIstBrutto ? " brutto" : " netto"}</li>}
+        {z.empfaenger && <li>Empfänger: {z.empfaenger}</li>}
+        {z.iban && <li>IBAN: <span className="mono">{z.iban}</span></li>}
+        {z.verwendungszweck && <li>Verwendungszweck: <span className="mono">{z.verwendungszweck}</span></li>}
+        {z.faellig && <li>Fällig: {z.faellig}</li>}
+        <li>Status: {fertig ? "bezahlt" : z.status === "pruefen" ? "BITTE PRÜFEN – nicht überweisen" : "geprüft, bereit zur Überweisung"}</li>
+        {(z.probleme || []).map((p, i) => <li key={i} className="bk-warn">⚠ {p}</li>)}
+      </ul>
+      {!fertig && z.status !== "pruefen" && <button className="b" onClick={bezahlt}>Als bezahlt markieren</button>}
+    </>
+  );
+}
 
 // Kennzahlen einer abgeschlossenen Buchung (netto)
 function Kennzahlen({ k }) {

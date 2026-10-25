@@ -75,6 +75,12 @@ export async function POST(request) {
         await verlauf(id, `Abgebrochen (${user.email}). Bereits verschickte Zusagen bitte beim Verlag stornieren.`, "abbruch", { status: "abgebrochen" });
         return NextResponse.json({ ok: true });
       }
+      case "bezahlt": {
+        const b = await holen("buchungen", id);
+        if (!b?.zahlung) return fehler("not_found", 404);
+        await verlauf(id, `Zahlung als überwiesen markiert (${user.email}).`, "zahlung", { zahlung: { ...b.zahlung, status: "bezahlt", bezahltAm: new Date().toISOString(), bezahltVon: user.email } });
+        return NextResponse.json({ ok: true });
+      }
       case "entsperren":
         await aendern("anzeigen", id, { buchungGesperrt: false, buchungHinweis: "" });
         return NextResponse.json({ ok: true });
