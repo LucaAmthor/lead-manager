@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { skriptFuer, STANDARD_SKRIPT, STANDARD_SKRIPTE } from "@/lib/telefon/skripte";
+import { skriptFuer, STANDARD_SKRIPT, STANDARD_SKRIPTE, mailboxAbfrage } from "@/lib/telefon/skripte";
 import { national } from "../_telefon/softphone";
 
 // Seite „Telefon“: Rückrufe, Anrufliste, Auslastung der Caller, Nummernpool, Einrichtung und Einstellungen.
@@ -334,7 +334,7 @@ function Einstellungen({ cfg, speichern, marke }) {
         </div>
       )}
       <div className="bk-grid">
-        <label>Mailbox-Ansage ({"{marke}"} = Marke der Anzeige)<textarea rows={3} value={w.mailboxText} placeholder="Standardtext" onChange={(e) => set({ mailboxText: e.target.value })} /></label>
+        <label>Mailbox-Ansage ({"{marke}"} = Marke, {"{abfrage}"} = was je Kategorie abgefragt wird, siehe Gesprächsleitfaden)<textarea rows={3} value={w.mailboxText} placeholder="Standardtext" onChange={(e) => set({ mailboxText: e.target.value })} /></label>
         <label>Ansage außerhalb der Zeiten<textarea rows={3} value={w.ausserhalbText} placeholder="Standardtext" onChange={(e) => set({ ausserhalbText: e.target.value })} /></label>
       </div>
 
@@ -366,8 +366,10 @@ function Einstellungen({ cfg, speichern, marke }) {
         <label>Begrüßung<textarea rows={3} value={sk.intro} onChange={(e) => skSet({ intro: e.target.value })} /></label>
         <label>Fragen (eine je Zeile, werden zu Eingabefeldern)<textarea rows={6} value={(sk.fragen || []).join("\n")} onChange={(e) => skSet({ fragen: e.target.value.split("\n") })} /></label>
         <label>Abschluss<textarea rows={3} value={sk.abschluss} onChange={(e) => skSet({ abschluss: e.target.value })} /></label>
+        <label>Mailbox fragt ab ({"{abfrage}"} in der Ansage)<textarea rows={3} value={w.skripte[kat]?.mailbox ?? mailboxAbfrage(kat)} onChange={(e) => skSet({ mailbox: e.target.value })} /></label>
       </div>
       <p className="bk-hint">Vorschau Begrüßung: {skriptFuer(kat, w.skripte, marke).intro}</p>
+      <p className="bk-hint">Vorschau Mailbox: {(w.mailboxText || "Guten Tag und danke für Ihren Anruf bei {marke}! Gerade sind alle Berater im Gespräch. Bitte nennen Sie nach dem Signalton {abfrage} Wir rufen Sie so schnell wie möglich zurück, spätestens am nächsten Werktag.").replace("{marke}", marke).replace("{abfrage}", w.skripte[kat]?.mailbox || mailboxAbfrage(kat))}</p>
 
       <div className="bk-aktionen"><button className="b primary" onClick={los}>Einstellungen speichern</button></div>
     </details>
