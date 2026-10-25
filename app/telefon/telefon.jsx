@@ -180,7 +180,7 @@ function Einrichtung({ info, cfg, tun, laden, nummern }) {
   const env = info.env || {};
   const bundleOk = (t.bundles || []).some((b) => b.status === "twilio-approved");
   const bundleWartet = (t.bundles || []).find((b) => ["pending-review", "in-review", "draft"].includes(b.status));
-  const handy = (cfg.ziele || STANDARD_ZIELE).some((z) => z.typ === "nummer" && z.nummer);
+  const handy = (cfg.ziele || STANDARD_ZIELE).some((z) => z.typ === "nummer" && z.nummer && z.aktiv !== false);
   const punkte = [
     [env.twilio, "Twilio-Zugang in Vercel: TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN (Twilio Console → Account Info), danach neu deployen"],
     [env.appUrl, "APP_URL in Vercel (für die Webhooks)"],
@@ -315,6 +315,7 @@ function Einstellungen({ cfg, speichern, marke }) {
           <label>Name<input value={z.name || ""} onChange={(e) => ziel(i, { name: e.target.value })} /></label>
           <label>Sekunden<input type="number" min="5" max="60" value={z.sekunden ?? 20} onChange={(e) => ziel(i, { sekunden: e.target.value })} /></label>
           <div className="tf-zeile">
+            <label className="tf-check" title="Pausierte Stufen werden übersprungen, die Nummer bleibt gespeichert"><input type="checkbox" checked={z.aktiv !== false} onChange={(e) => ziel(i, { aktiv: e.target.checked })} /> aktiv</label>
             <button className="linkbtn" disabled={!i} onClick={() => { const a = [...w.ziele]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; set({ ziele: a }); }}>↑</button>
             <button className="linkbtn" onClick={() => set({ ziele: w.ziele.filter((_, j) => j !== i) })}>entfernen</button>
           </div>

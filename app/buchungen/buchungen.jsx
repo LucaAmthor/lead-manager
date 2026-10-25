@@ -442,6 +442,7 @@ function Einstellungen({ cfg, speichern }) {
         <label>Absendername<input value={v.absenderName || ""} onChange={(e) => set("absenderName", e.target.value)} /></label>
         <label>Buchen ab … Tage vor Termin<input type="number" value={v.vorlaufTage ?? 21} onChange={(e) => set("vorlaufTage", n(e.target.value))} /></label>
         <label>Spätestens … Tage vor Termin<input type="number" value={v.mindestVorlaufTage ?? 4} onChange={(e) => set("mindestVorlaufTage", n(e.target.value))} /></label>
+        <label>Höchstpreis allgemein: € je 1.000 Exemplare (1/4 Seite, leer = aus)<input type="number" value={v.maxTkpViertelseite ?? ""} onChange={(e) => set("maxTkpViertelseite", n(e.target.value))} /></label>
         <label>Preis-Toleranz über Plan (%)<input type="number" value={v.preisToleranzProzent ?? 15} onChange={(e) => set("preisToleranzProzent", n(e.target.value))} /></label>
         <label>Monatslimit Buchungen (€ netto, leer = keins)<input type="number" value={v.monatsLimit ?? ""} onChange={(e) => set("monatsLimit", n(e.target.value))} /></label>
         <label>Nachfassen nach … Werktagen<input type="number" value={v.nachfassenNachTagen ?? 2} onChange={(e) => set("nachfassenNachTagen", n(e.target.value))} /></label>
@@ -459,7 +460,7 @@ function Einstellungen({ cfg, speichern }) {
       </div>
       <div className="bk-aktionen">
         <button className="b primary" disabled={!f} onClick={async () => { await speichern(v); setF(null); }}>Speichern</button>
-        <span className="bk-hint">Höchstpreis je Buchung = geplante Kosten + Toleranz. Ohne geplante Kosten: was vom Kampagnen-Limit frei ist. Darüber wartet der Agent auf eure Freigabe.</span>
+        <span className="bk-hint">Höchstpreis je Buchung = Auflage ÷ 1.000 × allgemeiner Höchstpreis (1/4 Seite; kleinere Formate nach Fläche). Stehen an der Anzeige feste Kosten, gelten diese + Toleranz. Darüber wartet der Agent auf eure Freigabe.</span>
       </div>
     </details>
   );
