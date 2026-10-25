@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { buchungsweg, STATUS_TEXT, OFFEN, eur, datumLang, tageBis, heuteISO, FORMATE, standardpreis, vergleichspreis } from "@/lib/buchung/regeln";
 
 // Seite „Buchungen“: was der Buchungs-Agent tut, wo er Hilfe braucht, wie jedes Blatt gebucht wird.
-const SAMMLUNGEN = ["blaetter", "anzeigen", "buchungen", "buchung_mails", "einstellungen", "kampagnen"];
+const SAMMLUNGEN = ["blaetter", "anzeigen", "buchungen", "buchung_mails", "einstellungen", "kampagnen", "kontakte"];
 const TON = {
   neu: "info", shop_laeuft: "info", anfrage_gesendet: "info", zusage_gesendet: "info", gebucht: "good", abgeschlossen: "good",
   test_fertig: "good", wartet_freigabe: "warn", wartet_verifizierung: "warn", braucht_hilfe: "crit", abgelehnt: "muted", abgebrochen: "muted",
@@ -154,7 +154,7 @@ export default function Buchungen({ email }) {
         {!bereit ? <p className="bk-leer">Lade …</p> : !sichtbar.length ? <p className="bk-leer">Nichts in dieser Ansicht.</p> : sichtbar.map((b) => <BuchungKarte key={b.id} b={b} blatt={blatt(b.blattId)} anzeigen={(b.anzeigeIds || []).map((i) => d.anzeigen.get(i)).filter(Boolean)} mails={mails.filter((m) => m.buchungId === b.id)} tun={tun} cfg={cfg} />)}
       </section>
 
-      {!!blaetter.length && <Vergleich blaetter={blaetter} buchungen={arr("buchungen")} cfg={cfg} />}
+      {!!blaetter.length && <Vergleich blaetter={blaetter} buchungen={arr("buchungen")} anzeigen={arr("anzeigen")} kontakte={arr("kontakte")} cfg={cfg} />}
 
       <section className="bk-karte">
         <div className="bk-sechead">
@@ -470,35 +470,64 @@ function Einstellungen({ cfg, speichern }) {
 
 
 // Alle Blätter auf einen Nenner: Vergleichspreis = € für 1.000 Exemplare mit einer 1/4 Seite. Kleiner = günstiger.
-function Vergleich({ blaetter, buchungen, cfg }) {
+function Vergleich({ blaetter, buchungen, anzeigen, kontakte, cfg }) {
   const grenze = Number(cfg?.maxTkpViertelseite) || null;
+  // Ergebnis: nur erschienene Anzeigen mit Kosten – sonst wären Kosten je Anfrage zu früh zu hoch
+  const erschienen = anzeigen.filter((a) => !a.demo && ["erschienen", "beendet"].includes(a.status) && Number(a.kosten) > 0);
+  const kVon = new Map();
+  for (const k of kontakte) if (!k.demo && k.anzeigeId) kVon.set(k.anzeigeId, [...(kVon.get(k.anzeigeId) || []), k]);
+  const ergebnis = (ads) => {
+    const ks = ads.flatMap((a) => kVon.get(a.id) || []);
+    const kosten = ads.reduce((s, a) => s + Number(a.kosten || 0), 0);
+    const leads = ks.filter((k) => k.qualifiziert).length;
+    const erloes = ks.reduce((s, k) => s + Number(k.erloes || 0), 0);
+    return { n: ads.length, kosten, anfragen: ks.length, leads, erloes, jeAnfrage: ks.length ? kosten / ks.length : null, jeLead: leads ? kosten / leads : null, jeEuro: kosten ? erloes / kosten : null };
+  };
   const zeilen = blaetter.map((b) => {
     const liste = standardpreis(b, "q-hoch").preis;
     const vpListe = liste ? vergleichspreis(liste, ["q-hoch"], b) : null;
     const gezahlt = buchungen.filter((x) => x.blattId === b.id && x.kennzahlen?.vergleichspreis).map((x) => x.kennzahlen.vergleichspreis);
-    return { b, liste, vpListe, vpGezahlt: gezahlt.length ? Math.min(...gezahlt) : null };
-  }).sort((x, y) => (x.vpGezahlt ?? x.vpListe ?? 1e9) - (y.vpGezahlt ?? y.vpListe ?? 1e9));
+    return { b, liste, vpListe, vpGezahlt: gezahlt.length ? Math.min(...gezahlt) : null, e: ergebnis(erschienen.filter((a) => a.blattId === b.id)) };
+  }).sort((x, y) => (x.e.jeAnfrage ?? 1e9) - (y.e.jeAnfrage ?? 1e9) || (x.vpGezahlt ?? x.vpListe ?? 1e9) - (y.vpGezahlt ?? y.vpListe ?? 1e9));
+  const ges = ergebnis(erschienen.filter((a) => blaetter.some((b) => b.id === a.blattId)));
+  const besterJeAnfrage = Math.min(...zeilen.map((z) => z.e.jeAnfrage ?? 1e9));
   return (
     <section className="bk-karte">
       <div className="bk-sechead">
         <h2>Blätter im Vergleich</h2>
-        <span className="bk-hint">Vergleichspreis = was es kostet, 1.000 Exemplare mit einer 1/4 Seite zu erreichen. Gilt für jede Größe und jedes Blatt – kleiner ist günstiger.{grenze ? ` Eure Grenze: ${eur(grenze)}.` : ""}</span>
+        <span className="bk-hint">Vorher: <b>Vergleichspreis</b> = was es kostet, 1.000 Exemplare mit einer 1/4 Seite zu erreichen (jede Größe, jedes Blatt – kleiner ist günstiger){grenze ? `, eure Grenze ${eur(grenze)}` : ""}. Nachher: <b>Kosten je Anfrage</b> = Anzeigenkosten ÷ eingegangene Kontakte (nur erschienene Anzeigen). Sortiert nach Kosten je Anfrage, solange es noch keine gibt nach Vergleichspreis.</span>
       </div>
       <div className="bk-tabelle"><table>
-        <thead><tr><th>Blatt</th><th>Auflage</th><th>Liste 1/4 Seite</th><th>Vergleichspreis Liste</th><th>Bester gezahlter</th></tr></thead>
+        <thead><tr><th>Blatt</th><th>Auflage</th><th>Liste 1/4 Seite</th><th>Vergleichspreis Liste</th><th>Bester gezahlter</th><th>Erschienen</th><th>Anfragen</th><th>Kosten je Anfrage</th><th>Leads</th><th>Kosten je Lead</th><th>Erlös je €</th></tr></thead>
         <tbody>
-          {zeilen.map(({ b, liste, vpListe, vpGezahlt }) => (
+          {zeilen.map(({ b, liste, vpListe, vpGezahlt, e }) => (
             <tr key={b.id}>
               <td>{b.name}</td>
               <td>{b.auflage ? Number(b.auflage).toLocaleString("de-DE") : "fehlt"}</td>
               <td>{liste ? eur(liste) : "–"}</td>
               <td className={grenze && vpListe ? (vpListe <= grenze ? "bk-gut" : "bk-warn") : ""}>{vpListe ? eur(vpListe) : "–"}</td>
               <td className={grenze && vpGezahlt ? (vpGezahlt <= grenze ? "bk-gut" : "bk-warn") : ""}>{vpGezahlt ? eur(vpGezahlt) : "–"}</td>
+              <Ergebnis e={e} bester={besterJeAnfrage} />
             </tr>
           ))}
+          {ges.n > 0 && <tr className="bk-summe"><td>Alle Blätter</td><td></td><td></td><td></td><td></td><Ergebnis e={ges} /></tr>}
         </tbody>
       </table></div>
     </section>
+  );
+}
+
+function Ergebnis({ e, bester }) {
+  const z = (v, f) => (v == null ? "–" : f(v));
+  return (
+    <>
+      <td>{e.n ? `${e.n} Anz. · ${eur(e.kosten)}` : "–"}</td>
+      <td>{e.n ? e.anfragen : "–"}</td>
+      <td className={e.jeAnfrage != null && e.jeAnfrage === bester ? "bk-gut" : ""}>{z(e.jeAnfrage, eur)}</td>
+      <td>{e.n ? e.leads : "–"}</td>
+      <td>{z(e.jeLead, eur)}</td>
+      <td>{z(e.jeEuro, (v) => v.toLocaleString("de-DE", { maximumFractionDigits: 2 }) + " €")}</td>
+    </>
   );
 }
 

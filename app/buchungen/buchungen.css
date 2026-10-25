@@ -108,3 +108,4 @@ button.b:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 .bk-mail.geplant { opacity: .75; border-style: dashed; }
 .bk td.bk-gut { color: #067647; font-weight: 600; }
 .bk td.bk-warn { color: #b42318; }
+.bk tr.bk-summe td { font-weight: 600; border-top: 2px solid var(--line); }
