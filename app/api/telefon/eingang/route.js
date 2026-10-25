@@ -1,6 +1,6 @@
 import { holen, anlegen, liste } from "@/lib/buchung/db";
 import { cfg, nummerZu, kontaktZumAnruf, bereiteCaller, erreichbar } from "@/lib/telefon/daten";
-import { stufe, mailbox } from "@/lib/telefon/routing";
+import { stufe, mailbox, ausserhalbTwiml } from "@/lib/telefon/routing";
 import * as tw from "@/lib/telefon/twilio";
 
 // Twilio ruft das bei jedem eingehenden Anruf auf einer Pool-Nummer auf (VoiceUrl der Nummer).
@@ -31,6 +31,8 @@ export async function POST(request) {
       p.CallSid
     );
     if (!offen) {
+      const a = await ausserhalbTwiml(anruf, c);
+      if (a) return tw.twiml(a);
       return tw.twiml(mailbox(anruf, c, c.ausserhalbText));
     }
     return tw.twiml(await stufe(anruf, c, 0));

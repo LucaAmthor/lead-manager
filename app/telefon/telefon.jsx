@@ -7,7 +7,7 @@ import { national } from "../_telefon/softphone";
 // Seite „Telefon“: Rückrufe, Anrufliste, Auslastung der Caller, Nummernpool, Einrichtung und Einstellungen.
 const SAMMLUNGEN = ["anrufe", "nummern", "anzeigen", "kontakte", "einstellungen", "telefon_praesenz", "telefon_zeit"];
 const KATS = ["Wärmepumpe", "PV", "Altenpflege", "Heizung", "Badsanierung", "Treppenlift", "Küche", "Fenster & Türen", "Dach & Dämmung", "Immobilie verkaufen"];
-const STATUS = { klingelt: "klingelt", laeuft: "läuft", beendet: "angenommen", verpasst: "verpasst", mailbox: "Mailbox", nicht_erreicht: "nicht erreicht" };
+const STATUS = { klingelt: "klingelt", laeuft: "läuft", beendet: "angenommen", verpasst: "verpasst", mailbox: "Mailbox", nicht_erreicht: "nicht erreicht", assistent: "Assistent" };
 const TAGE = [[1, "Mo"], [2, "Di"], [3, "Mi"], [4, "Do"], [5, "Fr"], [6, "Sa"], [0, "So"]];
 const STANDARD_ZIELE = [{ typ: "browser", name: "Browser (alle, die bereit sind)", sekunden: 20 }, { typ: "nummer", name: "Flo Handy", nummer: "", sekunden: 25 }];
 const zeit = (t) => (t ? new Date(t).toLocaleString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
@@ -127,7 +127,7 @@ export default function Telefon({ email }) {
                 <td>{zeit(a.start)}</td>
                 <td><b>{national(a.von)}</b>{a.stadtAnrufer ? <div className="muted">{a.stadtAnrufer}</div> : null}</td>
                 <td><span className="mono">{a.code || "–"}</span><div className="muted">{a.kategorie}</div></td>
-                <td>{a.aufnahmeSid ? <audio className="tf-audio" controls preload="none" src={`/api/telefon/aufnahme?sid=${a.aufnahmeSid}`} /> : <span className="muted">keine</span>}</td>
+                <td>{a.assistent ? <Assistent a={a.assistent} /> : a.aufnahmeSid ? <audio className="tf-audio" controls preload="none" src={`/api/telefon/aufnahme?sid=${a.aufnahmeSid}`} /> : <span className="muted">keine</span>}</td>
                 <td><div className="tf-zeile"><button className="b small primary" onClick={() => zurueckrufen(a)}>Zurückrufen</button><button className="b small ghost" onClick={() => tun({ aktion: "rueckruf", anrufId: a.id }, "Erledigt")}>Erledigt</button></div></td>
               </tr>
             ))}
@@ -172,6 +172,18 @@ export default function Telefon({ email }) {
   );
 }
 
+function Assistent({ a }) {
+  return (
+    <div style={{ maxWidth: 420 }}>
+      <div><b>Digitaler Assistent:</b> {a.zusammenfassung || "keine Zusammenfassung"}</div>
+      {Object.entries(a.angaben || {}).map(([k, v]) => <div key={k} className="muted">{k}: {v}</div>)}
+      {!!a.transkript?.length && (
+        <details><summary className="linkbtn">Gespräch lesen</summary>{a.transkript.map((t, i) => <div key={i}><b>{t.wer}:</b> {t.text}</div>)}</details>
+      )}
+    </div>
+  );
+}
+
 const Kpi = ({ wert, label, ton }) => <div className={"bk-kpi " + (ton || "")}><b>{wert}</b><span>{label}</span></div>;
 
 function Einrichtung({ info, cfg, tun, laden, nummern }) {
@@ -192,15 +204,23 @@ function Einrichtung({ info, cfg, tun, laden, nummern }) {
     [handy, "Handy-Ziel eingetragen (Einstellungen → Anruf-Weg)"],
     [nummern.length > 0, nummern.length ? `${nummern.length} Nummern im Pool` : "Erste Nummer kaufen oder vorhandene übernehmen"],
   ];
+  const assistent = [
+    [env.assistent, "Digitaler Assistent (optional): ELEVENLABS_API_KEY in Vercel (elevenlabs.io → Developers → API Keys)"],
+    [env.assistentWebhook, "ElevenLabs Post-Call-Webhook auf " + (env.appUrl || "https://<app>") + "/api/telefon/assistent, Secret als ELEVENLABS_WEBHOOK_SECRET in Vercel"],
+    [!!cfg.assistentAgentId, cfg.assistentAgentId ? `Assistent angelegt (${cfg.assistentAgentId})` : "Assistent anlegen (Knopf unten)"],
+  ];
   const fertig = punkte.every(([ok]) => ok);
   return (
     <section className="bk-karte bk-setup">
       <div className="bk-sechead"><h2>Einrichtung</h2>{fertig ? <span className="good">Alles bereit</span> : <span className="bk-hint">Was noch fehlt</span>}</div>
       {info.twilioFehler && <p className="crit">Twilio: {info.twilioFehler}</p>}
       <ul>{punkte.map(([ok, text]) => <li key={text} className={ok ? "ok" : ""}>{ok ? "✓" : "○"} {text}</li>)}</ul>
+      <h4>Digitaler Assistent</h4>
+      <ul>{assistent.map(([ok, text]) => <li key={text} className={ok ? "ok" : ""}>{ok ? "✓" : "○"} {text}</li>)}</ul>
       <div className="bk-aktionen">
         {env.twilio && <button className="b small primary" onClick={async () => { const j = await tun({ aktion: "einrichten" }, (j) => `Eingerichtet (${j.nummern} Nummern verbunden)`); if (j && !t.browser) setTimeout(() => window.location.reload(), 1200); else laden(); }}>{t.browser ? "Webhooks erneuern" : "Browser-Telefon einrichten"}</button>}
         {env.twilio && <button className="b small ghost" onClick={laden}>Neu prüfen</button>}
+        {env.assistent && !cfg.assistentAgentId && <button className="b small ghost" onClick={async () => { await tun({ aktion: "assistent_einrichten" }, "Assistent angelegt – im Anruf-Weg noch aktivieren"); laden(); }}>Digitalen Assistenten anlegen</button>}
       </div>
       {!!t.fremdeNummern?.length && (
         <>
@@ -306,14 +326,14 @@ function Einstellungen({ cfg, speichern, marke }) {
       <summary><h2>Einstellungen</h2></summary>
 
       <h3>Anruf-Weg</h3>
-      <p className="bk-hint">Reihenfolge, in der es klingelt. Browser-Stufe wird übersprungen, wenn niemand „bereit“ ist. Für die Übergabe an einen externen Telefondienst dessen Nummer als erste Stufe eintragen.</p>
+      <p className="bk-hint">Reihenfolge, in der es klingelt. Browser-Stufe wird übersprungen, wenn niemand „bereit“ ist. Der digitale Assistent nimmt sofort ab, stellt sich als digitaler Assistent vor, fragt kurz die Angaben ab und kündigt einen Rückruf an (gehört daher ans Ende). Für die Übergabe an einen externen Telefondienst dessen Nummer als erste Stufe eintragen.</p>
       {w.ziele.map((z, i) => (
         <div className="tf-ziel" key={i}>
           <span className="tf-nr">Stufe {i + 1}</span>
-          <label>Art<select value={z.typ} onChange={(e) => ziel(i, { typ: e.target.value })}><option value="browser">Browser (alle bereiten)</option><option value="nummer">Telefonnummer</option></select></label>
-          {z.typ === "nummer" ? <label>Nummer<input value={z.nummer || ""} placeholder="0171 …" onChange={(e) => ziel(i, { nummer: e.target.value })} /></label> : <span />}
+          <label>Art<select value={z.typ} onChange={(e) => ziel(i, { typ: e.target.value })}><option value="browser">Browser (alle bereiten)</option><option value="nummer">Telefonnummer</option><option value="assistent">Digitaler Assistent</option></select></label>
+          {z.typ === "nummer" ? <label>Nummer<input value={z.nummer || ""} placeholder="0171 …" onChange={(e) => ziel(i, { nummer: e.target.value })} /></label> : z.typ === "assistent" ? <label>Nicht bei Kategorien<input value={z.ohneKategorien || ""} placeholder="z. B. Altenpflege" onChange={(e) => ziel(i, { ohneKategorien: e.target.value })} /></label> : <span />}
           <label>Name<input value={z.name || ""} onChange={(e) => ziel(i, { name: e.target.value })} /></label>
-          <label>Sekunden<input type="number" min="5" max="60" value={z.sekunden ?? 20} onChange={(e) => ziel(i, { sekunden: e.target.value })} /></label>
+          {z.typ === "assistent" ? <label className="tf-check" title="Außerhalb der festen Zeiten nimmt der Assistent statt der Mailbox ab"><input type="checkbox" checked={z.auchAusserhalb !== false} onChange={(e) => ziel(i, { auchAusserhalb: e.target.checked })} /> auch nachts</label> : <label>Sekunden<input type="number" min="5" max="60" value={z.sekunden ?? 20} onChange={(e) => ziel(i, { sekunden: e.target.value })} /></label>}
           <div className="tf-zeile">
             <label className="tf-check" title="Pausierte Stufen werden übersprungen, die Nummer bleibt gespeichert"><input type="checkbox" checked={z.aktiv !== false} onChange={(e) => ziel(i, { aktiv: e.target.checked })} /> aktiv</label>
             <button className="linkbtn" disabled={!i} onClick={() => { const a = [...w.ziele]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; set({ ziele: a }); }}>↑</button>

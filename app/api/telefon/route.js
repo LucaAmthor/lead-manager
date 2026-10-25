@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { istMitglied } from "@/lib/telefon/auth";
 import { liste, holen, aendern, anlegen } from "@/lib/buchung/db";
 import { cfg, zuweisen, registrierung, herzschlag } from "@/lib/telefon/daten";
+import { agentAnlegen, assistentKonfiguriert } from "@/lib/telefon/assistent";
 import * as tw from "@/lib/telefon/twilio";
 
 // Seite /telefon und Browser-Telefon: Einrichtung prüfen, Nummern verwalten, Erreichbarkeit melden.
@@ -19,6 +20,8 @@ export async function GET(request) {
     service: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
     mail: !!(process.env.RESEND_API_KEY && process.env.BUCHUNG_MAIL_FROM),
     cron: !!process.env.CRON_SECRET,
+    assistent: assistentKonfiguriert(),
+    assistentWebhook: !!process.env.ELEVENLABS_WEBHOOK_SECRET,
   };
   const out = { env, identitaet: tw.identitaetAus(user.email) };
   if (env.twilio && detail) {
@@ -62,6 +65,17 @@ export async function POST(request) {
         let n = 0;
         for (const nr of await liste("nummern")) if (nr.pnSid) { await tw.nummerVerbinden(nr.pnSid); n++; }
         return NextResponse.json({ ok: true, browser: !!z, nummern: n });
+      }
+      case "assistent_einrichten": {
+        // Assistenten bei ElevenLabs anlegen und als (pausierte) Stufe vor der Mailbox eintragen
+        const c = await cfg();
+        const agentId = body.agentId || (await agentAnlegen(c, { stimmeId: body.stimmeId }));
+        const t = (await holen("einstellungen", "telefon")) || {};
+        const ziele = Array.isArray(t.ziele) && t.ziele.length ? t.ziele : c.ziele;
+        const neu = ziele.some((z) => z.typ === "assistent") ? ziele : [...ziele, { typ: "assistent", name: "Digitaler Assistent", aktiv: false, auchAusserhalb: true, ohneKategorien: "", sekunden: 0 }];
+        const patch = { assistentAgentId: agentId, ziele: neu };
+        if (t.id || Object.keys(t).length) await aendern("einstellungen", "telefon", patch); else await anlegen("einstellungen", patch, "telefon");
+        return NextResponse.json({ ok: true, agentId });
       }
       case "zuweisen":
         return NextResponse.json({ ok: true, ...(await zuweisen({ ids: Array.isArray(body.anzeigeIds) && body.anzeigeIds.length ? body.anzeigeIds : null, manuell: true, kanal: body.kanal === "social" ? "social" : "print" })) });
