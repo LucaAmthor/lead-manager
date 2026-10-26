@@ -220,6 +220,7 @@ function Einrichtung({ info, cfg, tun, laden, nummern }) {
       <div className="bk-aktionen">
         {env.twilio && <button className="b small primary" onClick={async () => { const j = await tun({ aktion: "einrichten" }, (j) => `Eingerichtet (${j.nummern} Nummern verbunden)`); if (j && !t.browser) setTimeout(() => window.location.reload(), 1200); else laden(); }}>{t.browser ? "Webhooks erneuern" : "Browser-Telefon einrichten"}</button>}
         {env.twilio && <button className="b small ghost" onClick={laden}>Neu prüfen</button>}
+        {env.assistent && cfg.assistentAgentId && <button className="b small ghost" onClick={async () => { await tun({ aktion: "assistent_aktualisieren" }, "Assistent bei ElevenLabs aktualisiert"); laden(); }}>Assistent aktualisieren</button>}
         {env.assistent && !cfg.assistentAgentId && <button className="b small ghost" onClick={async () => { await tun({ aktion: "assistent_einrichten" }, "Assistent angelegt – im Anruf-Weg noch aktivieren"); laden(); }}>Digitalen Assistenten anlegen</button>}
       </div>
       {!!t.fremdeNummern?.length && (

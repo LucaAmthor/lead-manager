@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { istMitglied } from "@/lib/telefon/auth";
 import { liste, holen, aendern, anlegen } from "@/lib/buchung/db";
 import { cfg, zuweisen, registrierung, herzschlag } from "@/lib/telefon/daten";
-import { agentAnlegen, assistentKonfiguriert } from "@/lib/telefon/assistent";
+import { agentAnlegen, agentAktualisieren, assistentKonfiguriert } from "@/lib/telefon/assistent";
 import * as tw from "@/lib/telefon/twilio";
 
 // Seite /telefon und Browser-Telefon: Einrichtung prüfen, Nummern verwalten, Erreichbarkeit melden.
@@ -76,6 +76,12 @@ export async function POST(request) {
         const patch = { assistentAgentId: agentId, ziele: neu };
         if (t.id || Object.keys(t).length) await aendern("einstellungen", "telefon", patch); else await anlegen("einstellungen", patch, "telefon");
         return NextResponse.json({ ok: true, agentId });
+      }
+      case "assistent_aktualisieren": {
+        const c = await cfg();
+        if (!c.assistentAgentId) return fehler("setup", 409, { detail: "Noch kein Assistent angelegt." });
+        await agentAktualisieren(c.assistentAgentId);
+        return NextResponse.json({ ok: true });
       }
       case "zuweisen":
         return NextResponse.json({ ok: true, ...(await zuweisen({ ids: Array.isArray(body.anzeigeIds) && body.anzeigeIds.length ? body.anzeigeIds : null, manuell: true, kanal: body.kanal === "social" ? "social" : "print" })) });

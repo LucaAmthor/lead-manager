@@ -41,5 +41,5 @@ export async function proxy(request) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|bilder/|_blob/|lokalpilot.js|lp-tracking.js|.*\\.(?:png|jpg|jpeg|svg|webp|ico)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|bilder/|_blob/|lokalpilot.js|lp-tracking.js|.*\\.(?:png|jpg|jpeg|svg|webp|ico|wav)$).*)"],
 };

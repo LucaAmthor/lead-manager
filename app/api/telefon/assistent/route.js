@@ -19,8 +19,8 @@ export async function POST(request) {
       const a = r.angaben;
       await mailAnTeam(
         c,
-        `Rückruf: ${a.name || tw.national(r.anruf.von)}${r.anruf.kategorie ? ` · ${r.anruf.kategorie}` : ""}${r.anruf.code ? ` · ${r.anruf.code}` : ""}`,
-        `Der digitale Assistent hat einen Anruf angenommen.\n\nAnrufer: ${tw.national(r.anruf.von)}${a.rueckrufnummer ? ` (Rückruf an: ${a.rueckrufnummer})` : ""}\n${Object.entries(a).filter(([k]) => k !== "rueckrufnummer").map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nZusammenfassung: ${r.zusammenfassung || "–"}\n\nZurückrufen: ${tw.appUrl()}/telefon`
+        `${r.einwilligung && !r.rueckrufGewuenscht ? "Neuer Lead (Einwilligung da)" : "Rückruf nötig"}: ${a.name || tw.national(r.anruf.von)}${r.anruf.kategorie ? ` · ${r.anruf.kategorie}` : ""}${r.anruf.code ? ` · ${r.anruf.code}` : ""}`,
+        `Der digitale Assistent hat einen Anruf angenommen. ${r.einwilligung ? "Einwilligung zur Weitergabe: ja." : "Keine Einwilligung zur Weitergabe."}${r.rueckrufGewuenscht ? " Anrufer wünscht einen persönlichen Rückruf." : ""}\n\nAnrufer: ${tw.national(r.anruf.von)}${a.rueckrufnummer ? ` (Rückruf an: ${a.rueckrufnummer})` : ""}\n${Object.entries(a).filter(([k]) => k !== "rueckrufnummer").map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nZusammenfassung: ${r.zusammenfassung || "–"}\n\nZurückrufen: ${tw.appUrl()}/telefon`
       );
     }
   } catch (e) {
