@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { planen, weiter, freigeben, antwortSenden, wegPruefen, postausgang } from "@/lib/buchung/agent";
 import { holen, aendern, verlauf, adminDb, geheimnisSetzen, einstellungen } from "@/lib/buchung/db";
 import { senden } from "@/lib/buchung/mail";
+import { ftpTesten } from "@/lib/buchung/ftp";
+import { verlageSuchen, rechercheWeiter, kandidatRecherchieren, kandidatUebernehmen } from "@/lib/buchung/recherche";
 
 // Aktionen der Seite /buchungen. Lange Läufe (Shop-Browser, Recherche) laufen nach der Antwort weiter;
 // der Fortschritt erscheint live im Verlauf der Buchung.
@@ -105,6 +107,43 @@ export async function POST(request) {
         await geheimnisSetzen(`shop:${host}`, { login: String(body.login), passwort: String(body.passwort), angelegt: new Date().toISOString(), von: user.email });
         return NextResponse.json({ ok: true, host });
       }
+      case "verlage_suchen": {
+        const region = String(body.region || "").trim();
+        if (!region) return fehler("invalid_argument", 400, { detail: "Region fehlt" });
+        imHintergrund(async () => {
+          await verlageSuchen({ region, anzahl: body.anzahl, von: user.email });
+          await rechercheWeiter({ zeitBudgetMs: 11 * 60 * 1000 });
+        }, "verlage_suchen");
+        return NextResponse.json({ ok: true });
+      }
+      case "kandidat_recherchieren":
+        imHintergrund(() => kandidatRecherchieren(String(id)), "kandidat_recherchieren");
+        return NextResponse.json({ ok: true });
+      case "kandidat_uebernehmen": {
+        const blatt = await kandidatUebernehmen(String(id));
+        return NextResponse.json({ ok: true, blattId: blatt.id });
+      }
+      case "kandidat_verwerfen":
+        await aendern("blatt_kandidaten", String(id), { status: "verworfen", verworfenVon: user.email });
+        return NextResponse.json({ ok: true });
+      case "ftp_zugang": {
+        // Nur das Passwort – Server, Benutzer, Pfad stehen am Blatt (blatt.buchung.ftp)
+        if (!body.blattId || !body.passwort) return fehler("invalid_argument", 400);
+        await geheimnisSetzen(`ftp:${body.blattId}`, { passwort: String(body.passwort), am: new Date().toISOString(), von: user.email });
+        return NextResponse.json({ ok: true });
+      }
+      case "ftp_test": {
+        const blatt = await holen("blaetter", String(body.blattId || ""));
+        if (!blatt) return fehler("not_found", 404);
+        try {
+          const r = await ftpTesten(blatt);
+          await aendern("blaetter", blatt.id, { buchung: { ...(blatt.buchung || {}), ftpTest: { am: Date.now(), ok: true, text: `Verbunden, ${r.eintraege} Einträge im Ordner` } } });
+          return NextResponse.json(r);
+        } catch (e) {
+          await aendern("blaetter", blatt.id, { buchung: { ...(blatt.buchung || {}), ftpTest: { am: Date.now(), ok: false, text: String(e.message).slice(0, 200) } } });
+          return fehler("unavailable", 502, { detail: e.message });
+        }
+      }
       case "testmail": {
         const cfg = await einstellungen();
         const r = await senden({ an: cfg.testEmpfaenger || user.email, betreff: "Lokalpilot: Test des Buchungs-Postfachs", text: "Wenn du diese Mail bekommst, funktioniert das Senden. Antworte auf diese Mail, um den Empfang zu testen (erscheint unter Buchungen → Postfach).", absenderName: cfg.absenderName });
@@ -130,6 +169,7 @@ export async function GET() {
   if (!user) return fehler("not_granted", 401);
   try {
     const { data } = await adminDb().from("lp_secrets").select("key, updated_at").like("key", "shop:%");
+    const { data: ftp } = await adminDb().from("lp_secrets").select("key").like("key", "ftp:%");
     const env = {
       resend: !!process.env.RESEND_API_KEY && !!process.env.BUCHUNG_MAIL_FROM,
       webhook: !!process.env.RESEND_WEBHOOK_SECRET,
@@ -139,7 +179,7 @@ export async function GET() {
       ki: !!process.env.ANTHROPIC_API_KEY,
       absender: process.env.BUCHUNG_MAIL_FROM || "",
     };
-    return NextResponse.json({ zugaenge: (data || []).map((r) => ({ host: r.key.slice(5), seit: r.updated_at })), env });
+    return NextResponse.json({ zugaenge: (data || []).map((r) => ({ host: r.key.slice(5), seit: r.updated_at })), ftpPasswoerter: (ftp || []).map((r) => r.key.slice(4)), env });
   } catch (e) {
     return NextResponse.json({ zugaenge: [], env: { service: false }, detail: e.message });
   }

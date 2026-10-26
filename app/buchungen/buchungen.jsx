@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { buchungsweg, STATUS_TEXT, OFFEN, eur, datumLang, tageBis, heuteISO, FORMATE, standardpreis, vergleichspreis } from "@/lib/buchung/regeln";
 
 // Seite „Buchungen“: was der Buchungs-Agent tut, wo er Hilfe braucht, wie jedes Blatt gebucht wird.
-const SAMMLUNGEN = ["blaetter", "anzeigen", "buchungen", "buchung_mails", "einstellungen", "kampagnen", "kontakte"];
+const SAMMLUNGEN = ["blaetter", "anzeigen", "buchungen", "buchung_mails", "einstellungen", "kampagnen", "kontakte", "blatt_kandidaten", "recherche_auftraege"];
 const TON = {
   neu: "info", shop_laeuft: "info", anfrage_gesendet: "info", zusage_gesendet: "info", gebucht: "good", abgeschlossen: "good",
   test_fertig: "good", wartet_freigabe: "warn", wartet_verifizierung: "warn", braucht_hilfe: "crit", abgelehnt: "muted", abgebrochen: "muted",
@@ -154,6 +154,8 @@ export default function Buchungen({ email }) {
         {!bereit ? <p className="bk-leer">Lade …</p> : !sichtbar.length ? <p className="bk-leer">Nichts in dieser Ansicht.</p> : sichtbar.map((b) => <BuchungKarte key={b.id} b={b} blatt={blatt(b.blattId)} anzeigen={(b.anzeigeIds || []).map((i) => d.anzeigen.get(i)).filter(Boolean)} mails={mails.filter((m) => m.buchungId === b.id)} tun={tun} cfg={cfg} />)}
       </section>
 
+      <VerlageFinden kandidaten={arr("blatt_kandidaten")} auftraege={arr("recherche_auftraege")} tun={tun} />
+
       {!!blaetter.length && <Vergleich blaetter={blaetter} buchungen={arr("buchungen")} anzeigen={arr("anzeigen")} kontakte={arr("kontakte")} cfg={cfg} />}
 
       <section className="bk-karte">
@@ -161,7 +163,7 @@ export default function Buchungen({ email }) {
           <h2>Buchungswege je Blatt</h2>
           <span className="bk-hint">„Automatisch“: Shop-Adresse vorhanden → Direktbuchung (bei Problemen weiter per Mail), sonst Anfrage per E-Mail.</span>
         </div>
-        <Blaetter blaetter={blaetter} speichern={blattSpeichern} tun={tun} zugaenge={info?.zugaenge || []} />
+        <Blaetter blaetter={blaetter} speichern={blattSpeichern} tun={tun} zugaenge={info?.zugaenge || []} ftpPw={info?.ftpPasswoerter || []} />
       </section>
 
       {!!unzugeordnet.length && (
@@ -373,7 +375,7 @@ function Mail({ m, tun }) {
   );
 }
 
-function Blaetter({ blaetter, speichern, tun, zugaenge }) {
+function Blaetter({ blaetter, speichern, tun, zugaenge, ftpPw = [] }) {
   const [zugang, setZugang] = useState({ host: "", login: "", passwort: "" });
   if (!blaetter.length) return <p className="bk-leer">Noch keine Blätter angelegt.</p>;
   return (
@@ -402,6 +404,7 @@ function Blaetter({ blaetter, speichern, tun, zugaenge }) {
                 </span>
               </label>
               <Preise b={b} speichern={speichern} />
+              <Ftp b={b} speichern={speichern} tun={tun} hatPw={ftpPw.includes(b.id)} />
               <div className="bk-blfuss">
                 {host && <span className={zugaenge.some((z) => z.host === host) ? "good" : "muted"}>{zugaenge.some((z) => z.host === host) ? `Shop-Zugang ${host} hinterlegt` : `Kein Zugang für ${host} (Agent legt bei Bedarf eins an)`}</span>}
                 <button className="b small ghost" disabled={b.buchungRecherche?.laeuft} onClick={() => tun({ aktion: "weg_pruefen", blattId: b.id }, "Recherche gestartet (dauert ein paar Minuten)")}>{b.buchungRecherche?.laeuft ? "Prüft …" : "Weg prüfen (KI)"}</button>
@@ -468,6 +471,92 @@ function Einstellungen({ cfg, speichern }) {
   );
 }
 
+
+// Recherche-Agent: Anzeigenblätter einer Region finden und alle Buchungsdaten sammeln
+function VerlageFinden({ kandidaten, auftraege, tun }) {
+  const [region, setRegion] = useState("");
+  const [anzahl, setAnzahl] = useState(10);
+  const [zeige, setZeige] = useState("offen");
+  const laufend = auftraege.filter((a) => ["sucht", "details"].includes(a.status));
+  const liste_ = kandidaten
+    .filter((k) => (zeige === "offen" ? !["uebernommen", "verworfen"].includes(k.status) : zeige === "uebernommen" ? k.status === "uebernommen" : true))
+    .sort((a, b) => (b.erstelltAm || 0) - (a.erstelltAm || 0));
+  const kosten = [...auftraege, ...kandidaten].reduce((s, x) => s + (Number(x.kosten) || 0), 0);
+  const STAT = { neu: "wartet", laeuft: "recherchiert …", recherchiert: "fertig", fehler: "Fehler", uebernommen: "übernommen", verworfen: "verworfen" };
+  return (
+    <section className="bk-karte">
+      <div className="bk-sechead">
+        <h2>Verlage finden</h2>
+        <span className="bk-hint">Der Recherche-Agent sucht Anzeigenblätter in einer Region und sammelt Auflage, Preise, Druckmaß, Anzeigenschluss, E-Mail und Druckdaten-Weg aus Mediadaten und Impressum. Pro Blatt ca. 1–2 Minuten; läuft im Hintergrund weiter (auch stündlich). Bisherige KI-Kosten ca. {eur(kosten)}.</span>
+      </div>
+      <div className="bk-aktionen">
+        <input style={{ flex: "1 1 220px" }} placeholder="Region, z. B. Landkreis Gifhorn oder Niedersachsen Süd" value={region} onChange={(e) => setRegion(e.target.value)} />
+        <input type="number" style={{ width: 80 }} min={1} max={40} value={anzahl} onChange={(e) => setAnzahl(Number(e.target.value) || 10)} />
+        <button className="b primary" disabled={!region.trim()} onClick={async () => { await tun({ aktion: "verlage_suchen", region, anzahl }, "Suche gestartet – Ergebnisse erscheinen hier nach und nach"); setRegion(""); }}>Suchen</button>
+      </div>
+      {!!laufend.length && <p className="bk-hint">Läuft: {laufend.map((a) => `${a.region} (${a.status === "sucht" ? "sucht Blätter" : `${a.gefunden || 0} gefunden, Details laufen`})`).join(" · ")}</p>}
+      {auftraege.filter((a) => a.status === "fehler").slice(-1).map((a) => <p key={a.id} className="bk-warn">Suche „{a.region}“ fehlgeschlagen: {a.fehler}</p>)}
+      <div className="bk-tabs" style={{ margin: "10px 0" }}>
+        {[["offen", "Vorschläge"], ["uebernommen", "Übernommen"], ["alle", "Alle"]].map(([k, l]) => <button key={k} className={zeige === k ? "an" : ""} onClick={() => setZeige(k)}>{l}</button>)}
+      </div>
+      {!liste_.length ? <p className="bk-leer">Noch keine Vorschläge.</p> : (
+        <div className="bk-tabelle"><table>
+          <thead><tr><th>Blatt</th><th>Erscheint</th><th>Auflage</th><th>Hochformat</th><th>Vergleichspreis</th><th>Schluss</th><th>Kontakt / Druckdaten</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {liste_.map((k) => {
+              const d = k.daten || {};
+              const hf = d.hochformat;
+              const vp = hf?.preis && d.auflage && hf.b && hf.h ? Number(hf.preis) / ((Number(d.auflage) / 1000) * ((hf.b * hf.h) / (141 * 200))) : null;
+              return (
+                <tr key={k.id}>
+                  <td><b>{d.name || k.name}</b><div className="bk-hint">{d.verlag || k.verlag} · {d.stadt || k.stadt}{k.region ? ` · ${k.region}` : ""}</div>{!!d.unsicher?.length && <div className="bk-warn">Unsicher: {d.unsicher.join("; ")}</div>}</td>
+                  <td>{d.erscheint || k.erscheint || "–"}</td>
+                  <td>{d.auflage ? Number(d.auflage).toLocaleString("de-DE") : "–"}</td>
+                  <td>{hf?.preis ? <>{eur(hf.preis)}<div className="bk-hint">{hf.b} × {hf.h} mm · {hf.preisArt}</div></> : d.mmPreisOrts || d.mmPreisGrund ? `${d.mmPreisOrts || d.mmPreisGrund} €/mm` : "–"}</td>
+                  <td>{vp ? eur(vp) : "–"}</td>
+                  <td>{d.anzeigenschluss || "–"}</td>
+                  <td>{d.emailAnzeigen || <span className="bk-warn">keine E-Mail</span>}<div className="bk-hint">Druckdaten: {d.druckdaten?.weg || "?"}{d.preislisteStand ? ` · ${d.preislisteStand}` : ""}</div>{(d.quellen || []).slice(0, 2).map((q) => <div key={q}><a href={q} target="_blank" rel="noreferrer" className="bk-hint">{String(q).replace(/^https?:\/\//, "").slice(0, 40)} ↗</a></div>)}</td>
+                  <td>{STAT[k.status] || k.status}{k.fehler && <div className="bk-warn">{k.fehler}</div>}{k.kosten ? <div className="bk-hint">{eur(k.kosten)}</div> : null}</td>
+                  <td>
+                    {k.status === "recherchiert" && <button className="b small" onClick={() => tun({ aktion: "kandidat_uebernehmen", id: k.id }, `${d.name || k.name} als Blatt angelegt`)}>Übernehmen</button>}
+                    {["fehler", "recherchiert"].includes(k.status) && <button className="b small ghost" onClick={() => tun({ aktion: "kandidat_recherchieren", id: k.id }, "Recherche läuft erneut")}>Neu</button>}
+                    {!["uebernommen", "verworfen"].includes(k.status) && <button className="b small ghost" onClick={() => tun({ aktion: "kandidat_verwerfen", id: k.id }, "Verworfen")}>Verwerfen</button>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table></div>
+      )}
+    </section>
+  );
+}
+
+// Druckdaten per FTP/FTPS/SFTP: Server-Daten am Blatt, Passwort nur verschlüsselt auf dem Server (lp_secrets)
+function Ftp({ b, speichern, tun, hatPw }) {
+  const f = b.buchung?.ftp || {};
+  const [pw, setPw] = useState("");
+  const setz = (k, v) => speichern(b, { ftp: { ...f, [k]: v } });
+  const t = b.buchung?.ftpTest;
+  return (
+    <details className="bk-preise">
+      <summary>Druckdaten per FTP{f.host ? ` · ${(f.protokoll || "ftp").toUpperCase()} ${f.host}${hatPw ? "" : " · Passwort fehlt"}` : " · nicht eingerichtet (Druckdaten per Mail)"}</summary>
+      <p className="bk-hint">Nur ausfüllen, wenn der Verlag Druckdaten per FTP will. Schickt der Verlag die Zugangsdaten per Mail, trägt der Agent sie selbst ein.{f.quelle ? ` Quelle: ${f.quelle}.` : ""}</p>
+      <div className="bk-preisraster">
+        <label>Protokoll<select defaultValue={f.protokoll || "ftp"} onChange={(e) => setz("protokoll", e.target.value)}><option value="ftp">FTP</option><option value="ftps">FTPS (verschlüsselt)</option><option value="sftp">SFTP</option></select></label>
+        <label>Server<input defaultValue={f.host || ""} placeholder="ftp.verlag.de" onBlur={(e) => e.target.value !== (f.host || "") && setz("host", e.target.value.trim())} /></label>
+        <label>Port<input type="number" defaultValue={f.port || ""} placeholder="21 / 22" onBlur={(e) => setz("port", Number(e.target.value) || null)} /></label>
+        <label>Benutzer<input defaultValue={f.benutzer || ""} onBlur={(e) => e.target.value !== (f.benutzer || "") && setz("benutzer", e.target.value.trim())} /></label>
+        <label>Ordner<input defaultValue={f.pfad || ""} placeholder="z. B. anzeigen/eingang" onBlur={(e) => e.target.value !== (f.pfad || "") && setz("pfad", e.target.value.trim())} /></label>
+        <label>Passwort {hatPw ? "(hinterlegt)" : ""}<span className="bk-mm"><input type="password" value={pw} placeholder={hatPw ? "neu setzen" : ""} onChange={(e) => setPw(e.target.value)} /><button className="b small" disabled={!pw} onClick={async () => { await tun({ aktion: "ftp_zugang", blattId: b.id, passwort: pw }, "FTP-Passwort gespeichert"); setPw(""); }}>Speichern</button></span></label>
+      </div>
+      <div className="bk-aktionen">
+        <button className="b small ghost" disabled={!f.host} onClick={() => tun({ aktion: "ftp_test", blattId: b.id }, "FTP-Test fertig")}>Verbindung testen</button>
+        {t && <span className={t.ok ? "good" : "bk-warn"}>{t.ok ? "✓ " : "✗ "}{t.text}</span>}
+      </div>
+    </details>
+  );
+}
 
 // Alle Blätter auf einen Nenner: Vergleichspreis = € für 1.000 Exemplare mit einer 1/4 Seite. Kleiner = günstiger.
 function Vergleich({ blaetter, buchungen, anzeigen, kontakte, cfg }) {
