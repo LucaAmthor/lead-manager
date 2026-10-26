@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { skriptFuer, EINWILLIGUNG_STANDARD } from "@/lib/telefon/skripte";
+import { skriptFuer, einwilligungFuer } from "@/lib/telefon/skripte";
 import "./softphone.css";
 
 // Browser-Telefon für alle Lokalpilot-Seiten: klingelt bei Lead-Anrufen, zeigt Anzeige + Leitfaden, erfasst den Kontakt.
@@ -63,7 +63,7 @@ export default function Softphone() {
         frueher = Math.max(0, (count || 0) - 1);
       }
       const marke = anruf.marke || allg?.marke || "Modernisieren24";
-      return { anruf, anzeige, kontakt, frueher, skript: skriptFuer(anruf.kategorie || anzeige?.kategorie, tel?.skripte, marke), einwilligung: allg?.texte?.einwilligungTelefon || EINWILLIGUNG_STANDARD };
+      return { anruf, anzeige, kontakt, frueher, skript: skriptFuer(anruf.kategorie || anzeige?.kategorie, tel?.skripte, marke), einwilligung: einwilligungFuer(anruf.kategorie || anzeige?.kategorie, tel?.einwilligung) };
     },
     [sb]
   );
@@ -172,7 +172,7 @@ export default function Softphone() {
       const { nummer, anrufId } = e.detail || {};
       try {
         const d = await geraet();
-        const info = anrufId ? await infoLaden(anrufId) : { anruf: { von: nummer }, skript: skriptFuer(""), einwilligung: EINWILLIGUNG_STANDARD };
+        const info = anrufId ? await infoLaden(anrufId) : { anruf: { von: nummer }, skript: skriptFuer(""), einwilligung: einwilligungFuer("") };
         const call = await d.connect({ params: { To: nummer, anrufId: anrufId || "" } });
         gespraechBeginnt(call, { ...info, anruf: { ...info.anruf, von: nummer } }, true);
       } catch (err) {
@@ -277,6 +277,12 @@ function Erfassung({ info, sb, fertig, laeuft }) {
     const plzText = antworten[Object.keys(antworten).find((x) => /postleitzahl/i.test(x))] || w.plz;
     const plz = (String(plzText).match(/\b\d{5}\b/) || [""])[0];
     const patch = { antworten, name, plz, qualifiziert: w.qualifiziert, einwilligung: w.einwilligung, notiz: w.notiz, erfasstAm: Date.now() };
+    // Nachweis der Einwilligung (Art. 7 Abs. 1 DSGVO): Wortlaut, Zeitpunkt, Kanal, wer gefragt hat. Nur beim ersten Häkchen setzen.
+    if (w.einwilligung && !k.einwilligung) {
+      const { data: u } = await sb.auth.getUser();
+      Object.assign(patch, { einwilligungText: info.einwilligung, einwilligungAm: Date.now(), einwilligungKanal: "Telefon", einwilligungDurch: u?.user?.email || "", einwilligungAnruf: info.anruf.id || "" });
+    }
+    if (!w.einwilligung && k.einwilligung) Object.assign(patch, { einwilligungWiderrufenAm: Date.now() });
     let id = info.anruf.kontaktId;
     let error;
     if (id) ({ error } = await sb.rpc("lp_merge", { p_collection: "kontakte", p_id: id, p_patch: patch }));

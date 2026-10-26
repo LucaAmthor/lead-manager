@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { skriptFuer, STANDARD_SKRIPT, STANDARD_SKRIPTE, mailboxAbfrage } from "@/lib/telefon/skripte";
+import { skriptFuer, STANDARD_SKRIPT, STANDARD_SKRIPTE, mailboxAbfrage, EINWILLIGUNG_STANDARD, DATENSCHUTZ_HINWEIS_STANDARD } from "@/lib/telefon/skripte";
 import { national } from "../_telefon/softphone";
 
 // Seite „Telefon“: Rückrufe, Anrufliste, Auslastung der Caller, Nummernpool, Einrichtung und Einstellungen.
@@ -308,7 +308,7 @@ function Einstellungen({ cfg, speichern, marke }) {
       ortsnetz: cfg.ortsnetz || "", maxNummern: cfg.maxNummern ?? 30, ruheTage: cfg.ruheTage ?? 42, nachlaufTage: cfg.nachlaufTage ?? 56, vorlaufTage: cfg.vorlaufTage ?? 45,
       autoZuweisen: cfg.autoZuweisen !== false, autoKaufen: cfg.autoKaufen !== false, bestaetigen: cfg.bestaetigen !== false, mailboxMail: cfg.mailboxMail !== false,
       ziele: cfg.ziele?.length ? cfg.ziele : STANDARD_ZIELE, zeiten: { aktiv: false, tage: [1, 2, 3, 4, 5, 6], von: "08:00", bis: "20:00", ...(cfg.zeiten || {}) },
-      mailboxText: cfg.mailboxText || "", ausserhalbText: cfg.ausserhalbText || "", benachrichtigen: (cfg.benachrichtigen || []).join(", "),
+      mailboxText: cfg.mailboxText || "", ausserhalbText: cfg.ausserhalbText || "", einwilligung: cfg.einwilligung || "", datenschutzHinweis: cfg.datenschutzHinweis || "", benachrichtigen: (cfg.benachrichtigen || []).join(", "),
       alarm: { verpasst: 2, fensterMin: 60, quoteMin: 85, pauseStunden: 3, ...(cfg.alarm || {}) }, skripte: cfg.skripte || {},
     });
   }, [cfg]);
@@ -356,6 +356,8 @@ function Einstellungen({ cfg, speichern, marke }) {
       <div className="bk-grid">
         <label>Mailbox-Ansage ({"{marke}"} = Marke, {"{abfrage}"} = was je Kategorie abgefragt wird, siehe Gesprächsleitfaden)<textarea rows={3} value={w.mailboxText} placeholder="Standardtext" onChange={(e) => set({ mailboxText: e.target.value })} /></label>
         <label>Ansage außerhalb der Zeiten<textarea rows={3} value={w.ausserhalbText} placeholder="Standardtext" onChange={(e) => set({ ausserhalbText: e.target.value })} /></label>
+        <label>Datenschutz-Hinweis (wird in jeder Mailbox-Ansage vor dem Signalton gesagt)<textarea rows={2} value={w.datenschutzHinweis} placeholder={DATENSCHUTZ_HINWEIS_STANDARD} onChange={(e) => set({ datenschutzHinweis: e.target.value })} /></label>
+        <label>Einwilligung zur Weitergabe (liest der Caller vor, gilt auch für WhatsApp; {"{anbieter}"} = Anbieter der Kategorie)<textarea rows={4} value={w.einwilligung} placeholder={EINWILLIGUNG_STANDARD} onChange={(e) => set({ einwilligung: e.target.value })} /></label>
       </div>
 
       <h3>Nummernpool</h3>
