@@ -791,6 +791,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
     const box = $("kw-blaetter"); const sel = readChecks(box); const fresh = !box.dataset.init;
     box.innerHTML = B().filter((b) => !b.demo).length ? checks("kwb", B().filter((b) => !b.demo).map((b) => ({ value: b.id, label: b.name })), fresh ? B().filter((b) => !b.demo).map((b) => b.id) : sel) : `<span class="hint">Zuerst Wochenblätter anlegen.</span>`;
     if (B().length) box.dataset.init = "1";
+    filterZaehlerAlle();
   }
   function nextCode(blatt, kat) { return nextCodeFactory()(blatt.stadt, kat); }
   function updateKostenHint() { const sp = stdPreis(blattById($("a-blatt").value), $("a-format").value); $("a-kosten").placeholder = sp ? `leer = Standardpreis ${eur(sp)}` : ""; }
@@ -815,7 +816,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
     if (adView === "vorschau") setAdView("liste");
     editingAd = a.id; $("ad-form-title").textContent = `Anzeige ${a.code} bearbeiten`; $("a-save").textContent = "Änderungen speichern"; $("a-cancel").hidden = false;
     $("a-kampagne").value = a.kampagneId || ""; $("a-blatt").value = a.blattId || ""; $("a-kategorie").value = a.kategorie; $("a-botschaft").value = a.botschaft || BOTSCHAFTEN[2]; $("a-ton").value = a.ton || "Seriös"; $("a-viral").value = a.viral || "Klassisch"; $("a-layout").value = a.layout || "A"; $("a-format").value = a.format || "q-hoch";
-    setChecks($("a-kontaktwege"), a.kontaktwege); $("a-datum").value = a.datum || ""; $("a-kosten").value = a.kosten ?? ""; $("a-status").value = a.status; $("a-nummer").value = a.trackingNummer || ""; $("a-notiz").value = a.notiz || ""; updateCodeHint(); $("ad-form").scrollIntoView({ behavior: "smooth", block: "start" });
+    setChecks($("a-kontaktwege"), a.kontaktwege); $("a-datum").value = a.datum || ""; $("a-kosten").value = a.kosten ?? ""; $("a-status").value = a.status; $("a-nummer").value = a.trackingNummer || ""; $("a-notiz").value = a.notiz || ""; updateCodeHint(); filterZaehlerAlle(); $("ad-form").scrollIntoView({ behavior: "smooth", block: "start" });
   }
   $("ad-form").addEventListener("submit", async (e) => {
     e.preventDefault(); const blatt = blattById($("a-blatt").value); if (!blatt) { toast("Bitte ein Blatt wählen."); return; }
@@ -914,7 +915,7 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
     document.querySelectorAll(".view").forEach((v) => (v.hidden = v.id !== "v-" + name));
     const pg = PAGES[name]; if (pg) { $("page-title").textContent = pg[0]; $("page-sub").textContent = pg[1]; }
     $("page-actions").innerHTML = name === "kampagnen" ? "" : name === "anzeigen" || name === "auswertung" ? `<button class="b primary" type="button" data-cta="1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Neue Kampagne</button>` : "";
-    lsSet("lp-tab", name); if (name === "strategie") renderStrategie(); if (name === "studio") renderStudio(); window.scrollTo({ top: 0 });
+    lsSet("lp-tab", name); filterZaehlerAlle(); if (name === "strategie") renderStrategie(); if (name === "studio") renderStudio(); window.scrollTo({ top: 0 });
   }
   tabs.forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab)));
   const goNewCampaign = () => { showTab("kampagnen"); setTimeout(() => $("kw-name").focus(), 50); };
@@ -922,6 +923,47 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
   $("page-actions").addEventListener("click", (e) => { if (e.target.closest("[data-cta]")) goNewCampaign(); });
   $("dim").addEventListener("change", renderAuswertung); $("aw-kampagne").addEventListener("change", renderAuswertung);
   $("demo-toggle").addEventListener("change", () => { showDemo = $("demo-toggle").checked; lsSet("lp-demo", showDemo); renderAll(); });
+
+  // ================= Filter-Zähler =================
+  // Hinter jedem Wert steht, wie viele Anzeigen übrig bleiben, wenn man ihn wählt: Alle anderen aktiven Filter gelten,
+  // nur der eigene Filter wird durch diesen Wert ersetzt. „Alle“/„ohne Filter“ zeigt die Gesamtzahl mit den übrigen Filtern.
+  // Gezählt wird über A(), Beispieldaten also nur, wenn „Beispieldaten zeigen“ an ist.
+  // Eine gemeinsame Zählfunktion für alle Filter: filter = [{ wert: (x) => Feldwert, aktiv: Set | null }].
+  function zaehleFilter(liste, filter) {
+    return filter.map((f, i) => {
+      const rest = liste.filter((x) => filter.every((g, j) => j === i || !g.aktiv || g.aktiv.has(String(g.wert(x)))));
+      const n = new Map(); for (const x of rest) { const k = String(f.wert(x)); n.set(k, (n.get(k) || 0) + 1); }
+      return { gesamt: rest.length, n };
+    });
+  }
+  // Welche Auswahlfelder zusammengehören: [Element-ID, Feld der Anzeige, Werte, die „Alle“ bedeuten]
+  const fzKamp = (a) => a.kampagneId || "", fzBlatt = (a) => a.blattId || "", fzKat = (a) => a.kategorie || "";
+  const fzTon = (a) => a.ton || "Seriös", fzViral = (a) => a.viral || "Klassisch", fzLayout = (a) => a.layout || "A";
+  const FZ_GRUPPEN = [
+    [["st-kampagne", fzKamp, [""]], ["st-blatt", fzBlatt, [""]], ["st-kategorie", fzKat], ["st-ton", fzTon], ["st-viral", fzViral], ["st-layout", fzLayout, ["auto"]]],
+    [["kw-blaetter", fzBlatt], ["kw-kat", fzKat], ["kw-ton", fzTon, ["Mix testen"]], ["kw-viral", fzViral, ["Agent wählt"]]],
+    [["a-kampagne", fzKamp, [""]], ["a-blatt", fzBlatt, [""]], ["a-kategorie", fzKat], ["a-botschaft", (a) => a.botschaft || BOTSCHAFTEN[2]], ["a-ton", fzTon], ["a-viral", fzViral], ["a-layout", fzLayout], ["a-format", (a) => a.format || "q-hoch"], ["a-status", (a) => a.status || "geplant"]],
+    [["ad-kampagne", fzKamp, [""]], ["ad-filter", (a) => a.status || "", [""]]],
+  ].map((g) => g.map(([id, wert, alle = []]) => ({ id, wert, alle })));
+  function zeigeZaehler(gruppe) {
+    const els = gruppe.map((f) => $(f.id)); if (els.some((el) => !el)) return;
+    const istSel = (el) => el.tagName === "SELECT";
+    const z = zaehleFilter(A(), gruppe.map((f, i) => {
+      const w = (istSel(els[i]) ? [els[i].value] : readChecks(els[i])).filter((v) => !f.alle.includes(v));
+      return { wert: f.wert, aktiv: w.length ? new Set(w) : null };
+    }));
+    gruppe.forEach((f, i) => {
+      const el = els[i], { gesamt, n } = z[i], zahl = (v) => (f.alle.includes(v) ? gesamt : n.get(v) || 0);
+      if (istSel(el)) {
+        for (const o of el.options) { if (o.dataset.l == null) o.dataset.l = o.textContent; const c = zahl(o.value); o.textContent = `${o.dataset.l} (${c})`; o.classList.toggle("fz-null", !c); }
+      } else {
+        for (const l of el.querySelectorAll("label")) { const inp = l.querySelector("input"); if (!inp) continue; const c = zahl(inp.value); let sp = l.querySelector(".fz"); if (!sp) { sp = document.createElement("span"); sp.className = "fz"; l.appendChild(sp); } sp.textContent = `(${c})`; l.classList.toggle("fz-null", !c); }
+      }
+    });
+  }
+  function filterZaehlerAlle() { FZ_GRUPPEN.forEach(zeigeZaehler); }
+  // Sofort aktualisieren, wenn ein Filter geändert wird; beim Öffnen auch nach Änderungen per Code (z. B. „Übernehmen“-Knöpfe)
+  FZ_GRUPPEN.forEach((g) => g.forEach((f) => { const el = $(f.id); if (!el) return; el.addEventListener("change", () => zeigeZaehler(g)); el.addEventListener("focusin", () => zeigeZaehler(g)); }));
 
   function renderAll() {
     recompute();

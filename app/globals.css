@@ -387,3 +387,8 @@ details.settings summary{cursor:pointer;font-weight:600;font-size:14px}
 .tip{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink-3);font:600 10.5px/1 var(--body);cursor:help;flex:none;user-select:none}
 .tip:hover,.tip:focus-visible{border-color:var(--brand);color:var(--brand);outline:none}
 .tipbox{position:fixed;z-index:1000;padding:10px 12px;border-radius:10px;background:var(--ink);color:var(--paper,#fff);font:400 12.5px/1.5 var(--body);box-shadow:0 8px 24px rgba(0,0,0,.18);white-space:pre-line;pointer-events:none}
+
+/* Filter-Zähler: Werte ohne Treffer grau, bleiben wählbar */
+option.fz-null{color:var(--ink-3)}
+.checks .fz{color:var(--ink-3);font-size:12px}
+.checks label.fz-null{color:var(--ink-3)}
