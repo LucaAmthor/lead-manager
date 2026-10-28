@@ -7,7 +7,7 @@ import * as tw from "@/lib/telefon/twilio";
 
 // Seite /telefon und Browser-Telefon: Einrichtung prüfen, Nummern verwalten, Erreichbarkeit melden.
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 const fehler = (code, status, extra = {}) => NextResponse.json({ code, ...extra }, { status });
 
 export async function GET(request) {
@@ -83,6 +83,15 @@ export async function POST(request) {
         const { assistentAbgleichen } = await import("@/lib/telefon/abgleich");
         await assistentAbgleichen({ erzwingen: true });
         return NextResponse.json({ ok: true });
+      }
+      case "auswerten": {
+        const { wochenAuswertung } = await import("@/lib/telefon/auswertung");
+        return NextResponse.json({ ok: true, ...(await wochenAuswertung()) });
+      }
+      case "testnummern": {
+        const nummern = (Array.isArray(body.nummern) ? body.nummern : String(body.nummern || "").split(/[,;\n]+/)).map((n) => String(n).trim()).filter(Boolean).slice(0, 20);
+        await aendern("einstellungen", "telefon", { testnummern: nummern });
+        return NextResponse.json({ ok: true, nummern });
       }
       case "zuweisen":
         return NextResponse.json({ ok: true, ...(await zuweisen({ ids: Array.isArray(body.anzeigeIds) && body.anzeigeIds.length ? body.anzeigeIds : null, manuell: true, kanal: body.kanal === "social" ? "social" : "print" })) });

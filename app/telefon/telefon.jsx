@@ -3,9 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { skriptFuer, STANDARD_SKRIPT, STANDARD_SKRIPTE, mailboxAbfrage, EINWILLIGUNG_STANDARD, DATENSCHUTZ_HINWEIS_STANDARD } from "@/lib/telefon/skripte";
 import { national } from "../_telefon/softphone";
+import { kennzahlen, ABBRUCH } from "@/lib/telefon/kennzahlen";
 
 // Seite „Telefon“: Rückrufe, Anrufliste, Auslastung der Caller, Nummernpool, Einrichtung und Einstellungen.
-const SAMMLUNGEN = ["anrufe", "nummern", "anzeigen", "kontakte", "einstellungen", "telefon_praesenz", "telefon_zeit"];
+const SAMMLUNGEN = ["anrufe", "nummern", "anzeigen", "kontakte", "einstellungen", "telefon_praesenz", "telefon_zeit", "telefon_auswertungen"];
 const KATS = ["Wärmepumpe", "PV", "Altenpflege", "Heizung", "Badsanierung", "Treppenlift", "Küche", "Fenster & Türen", "Dach & Dämmung", "Immobilie verkaufen"];
 const STATUS = { klingelt: "klingelt", laeuft: "läuft", beendet: "angenommen", verpasst: "verpasst", mailbox: "Mailbox", nicht_erreicht: "nicht erreicht", assistent: "Assistent" };
 const TAGE = [[1, "Mo"], [2, "Di"], [3, "Mi"], [4, "Do"], [5, "Fr"], [6, "Sa"], [0, "So"]];
@@ -161,6 +162,8 @@ export default function Telefon({ email }) {
         )}
       </section>
 
+      <Conversion anrufe={arr("anrufe")} kontakte={d.kontakte} cfg={cfg} auswertungen={arr("telefon_auswertungen")} tun={tun} />
+
       <Auslastung anrufe={sieben} zeit={arr("telefon_zeit")} praesenz={arr("telefon_praesenz")} />
 
       <Pool nummern={arr("nummern")} anzeige={anzeige} tun={tun} cfg={cfg} />
@@ -181,6 +184,70 @@ function Assistent({ a }) {
         <details><summary className="linkbtn">Gespräch lesen</summary>{a.transkript.map((t, i) => <div key={i}><b>{t.wer}:</b> {t.text}</div>)}</details>
       )}
     </div>
+  );
+}
+
+const KRIT = { lead_mit_einwilligung: "Lead mit Einwilligung", vertrauen: "Vertrauen gehalten", kurz_und_klar: "Kurz und klar" };
+
+function Conversion({ anrufe, kontakte, cfg, auswertungen, tun }) {
+  const [tage, setTage] = useState(7);
+  const [laeuft, setLaeuft] = useState(false);
+  const [test, setTest] = useState((cfg.testnummern || []).join(", "));
+  const k = useMemo(() => kennzahlen({ anrufe, kontakte, von: Date.now() - tage * tagMs, cfg }), [anrufe, kontakte, tage, cfg]);
+  const abbruch = Object.entries(k.abbruch).sort((p, q) => q[1] - p[1]);
+  const maxA = Math.max(1, ...abbruch.map(([, n]) => n));
+  const letzte = auswertungen.sort((p, q) => (q.zeit || 0) - (p.zeit || 0))[0];
+  return (
+    <section className="bk-karte">
+      <div className="bk-sechead"><h2>Conversion</h2>
+        <span className="bk-hint">Wie viele Anrufe werden zu einem Lead mit Einwilligung, und wo steigen Anrufer aus. Anrufe von euren eigenen Nummern (Handy-Ziele, Testnummern) zählen nicht.</span>
+        <div className="bk-tabs">{[[7, "7 Tage"], [30, "30 Tage"], [365, "alle"]].map(([t, l]) => <button key={t} className={tage === t ? "an" : ""} onClick={() => setTage(t)}>{l}</button>)}</div>
+      </div>
+      <div className="bk-kpis">
+        <Kpi wert={k.anrufe} label="Anrufe" />
+        <Kpi wert={k.leads} label="Leads mit Einwilligung" ton="good" />
+        <Kpi wert={pct(k.quote)} label="Quote Anruf → Lead" />
+        <Kpi wert={`${k.assistent.leads}/${k.assistent.anrufe}`} label={`Assistent (Ø ${min(k.assistent.dauer)})`} />
+        <Kpi wert={`${k.mensch.leads}/${k.mensch.anrufe}`} label="Mensch" />
+      </div>
+      {!!abbruch.length && (
+        <div style={{ marginTop: 14 }}>
+          <h3 className="bk-hint" style={{ marginBottom: 6 }}>Wo das Gespräch mit dem Assistenten endete</h3>
+          {abbruch.map(([s2, n]) => (
+            <div key={s2} style={{ display: "grid", gridTemplateColumns: "170px 1fr 40px", gap: 8, alignItems: "center", margin: "3px 0" }}>
+              <span>{ABBRUCH[s2] || s2}</span>
+              <span style={{ height: 10, borderRadius: 5, background: s2 === "keiner" ? "var(--good)" : "var(--crit)", opacity: 0.75, width: `${(n / maxA) * 100}%` }} />
+              <span className="num">{n}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {!!Object.keys(k.kriterien).length && (
+        <p className="bk-hint" style={{ marginTop: 10 }}>Bewertung durch ElevenLabs: {Object.entries(k.kriterien).map(([id, x]) => `${KRIT[id] || id} ${x.n ? pct(x.ok / x.n) : "–"}`).join(" · ")}</p>
+      )}
+      {!!k.zoegern.length && (
+        <details style={{ marginTop: 8 }}><summary className="linkbtn">Wo Anrufer gezögert haben ({k.zoegern.length})</summary>{k.zoegern.slice(0, 30).map((z, i) => <div key={i} className="muted">• {z}</div>)}</details>
+      )}
+
+      <div className="bk-sechead" style={{ marginTop: 18 }}><h3>Wochen-Auswertung</h3>
+        <span className="bk-hint">Jeden Montag früh liest die KI alle Gespräche der Woche und schlägt Verbesserungen vor (kommt auch per Mail). Umgesetzt wird nichts automatisch.</span>
+        <button className="b small" disabled={laeuft} onClick={async () => { setLaeuft(true); await tun({ aktion: "auswerten" }, "Auswertung fertig"); setLaeuft(false); }}>{laeuft ? "Wertet aus …" : "Jetzt auswerten"}</button>
+      </div>
+      {!letzte ? <p className="bk-leer">Noch keine Auswertung.</p> : (
+        <div>
+          <p className="muted">{new Date(letzte.zeit).toLocaleString("de-DE")} · {letzte.gespraeche} Gespräche · {letzte.kennzahlen?.leads ?? 0} Leads aus {letzte.kennzahlen?.anrufe ?? 0} Anrufen</p>
+          {letzte.zusammenfassung && <p>{letzte.zusammenfassung}</p>}
+          {!!letzte.vorschlaege?.length && (<><b>Vorschläge</b><ol>{letzte.vorschlaege.map((v, i) => <li key={i}><b>{v.titel}</b> <span className="muted">({v.wirkung} · {v.wo})</span><div>{v.aenderung}</div><div className="muted">{v.warum}</div></li>)}</ol></>)}
+          {!!letzte.probleme?.length && (<details><summary className="linkbtn">Probleme ({letzte.probleme.length})</summary>{letzte.probleme.map((p2, i) => <div key={i}>• {p2.problem} <span className="muted">– {p2.haeufigkeit}; {p2.beleg}</span></div>)}</details>)}
+          {!!letzte.gut?.length && (<details><summary className="linkbtn">Was gut läuft</summary>{letzte.gut.map((g, i) => <div key={i}>• {g}</div>)}</details>)}
+          {letzte.test_naechste_woche && <p className="bk-hint">Nächste Woche testen: {letzte.test_naechste_woche}</p>}
+        </div>
+      )}
+      <div className="bk-aktionen" style={{ marginTop: 12 }}>
+        <label className="bk-hint">Testnummern (zählen nicht mit)<input value={test} onChange={(e) => setTest(e.target.value)} placeholder="z. B. 01522 …" style={{ marginLeft: 8, minWidth: 220 }} /></label>
+        <button className="b small ghost" onClick={() => tun({ aktion: "testnummern", nummern: test }, "Gespeichert")}>Speichern</button>
+      </div>
+    </section>
   );
 }
 
