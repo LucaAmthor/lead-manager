@@ -192,7 +192,9 @@ const KRIT = { lead_mit_einwilligung: "Lead mit Einwilligung", vertrauen: "Vertr
 function Conversion({ anrufe, kontakte, cfg, auswertungen, tun }) {
   const [tage, setTage] = useState(7);
   const [laeuft, setLaeuft] = useState(false);
-  const [test, setTest] = useState((cfg.testnummern || []).join(", "));
+  const gespeichert = (cfg.testnummern || []).join("\n");
+  const [test, setTest] = useState(gespeichert);
+  useEffect(() => { setTest(gespeichert); }, [gespeichert]);
   const k = useMemo(() => kennzahlen({ anrufe, kontakte, von: Date.now() - tage * tagMs, cfg }), [anrufe, kontakte, tage, cfg]);
   const abbruch = Object.entries(k.abbruch).sort((p, q) => q[1] - p[1]);
   const maxA = Math.max(1, ...abbruch.map(([, n]) => n));
@@ -243,9 +245,13 @@ function Conversion({ anrufe, kontakte, cfg, auswertungen, tun }) {
           {letzte.test_naechste_woche && <p className="bk-hint">Nächste Woche testen: {letzte.test_naechste_woche}</p>}
         </div>
       )}
-      <div className="bk-aktionen" style={{ marginTop: 12 }}>
-        <label className="bk-hint">Testnummern (zählen nicht mit)<input value={test} onChange={(e) => setTest(e.target.value)} placeholder="z. B. 01522 …" style={{ marginLeft: 8, minWidth: 220 }} /></label>
-        <button className="b small ghost" onClick={() => tun({ aktion: "testnummern", nummern: test }, "Gespeichert")}>Speichern</button>
+      <div style={{ marginTop: 14 }}>
+        <label className="bk-hint" style={{ display: "block", marginBottom: 4 }}>Testnummern – zählen nicht mit. Mehrere Nummern: eine pro Zeile (oder mit Komma getrennt). Handy-Ziele aus dem Anruf-Weg sind automatisch ausgenommen.</label>
+        <textarea value={test} onChange={(e) => setTest(e.target.value)} rows={Math.max(3, test.split("\n").length + 1)} placeholder={"0176 …\n0151 …"} style={{ width: "100%", maxWidth: 360, fontFamily: "inherit" }} />
+        <div className="bk-aktionen" style={{ marginTop: 6 }}>
+          <button className="b small" disabled={test === gespeichert} onClick={() => tun({ aktion: "testnummern", nummern: test }, (j) => `Gespeichert: ${j.nummern.length} Nummer${j.nummern.length === 1 ? "" : "n"}`)}>Speichern</button>
+          {!!cfg.testnummern?.length && <span className="bk-hint">{cfg.testnummern.length} gespeichert</span>}
+        </div>
       </div>
     </section>
   );
