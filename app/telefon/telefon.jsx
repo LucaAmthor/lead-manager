@@ -346,7 +346,7 @@ function Pool({ nummern, anzeige, tun, cfg }) {
     <section className="bk-karte">
       <div className="bk-sechead">
         <h2>Nummernpool</h2>
-        <span className="bk-hint">{z.zugewiesen} vergeben · {z.frei} frei · {z.ruhend} ruhen · höchstens {cfg.maxNummern ?? 30}. Nach dem Ende einer Anzeige ruht die Nummer {cfg.ruheTage ?? 42} Tage (Nachzügler zählen noch zur alten Anzeige), dann wird sie wiederverwendet.</span>
+        <span className="bk-hint">{z.zugewiesen} vergeben · {z.frei} frei · {z.ruhend} ruhen · höchstens {cfg.maxNummern ?? 30}. Nach dem Ende einer Anzeige ruht die Nummer {cfg.ruheTage ?? 56} Tage (Nachzügler zählen noch zur alten Anzeige), dann wird sie wiederverwendet.</span>
       </div>
       <div className="bk-aktionen" style={{ marginTop: 0, marginBottom: 10 }}>
         <button className="b small primary" onClick={() => tun({ aktion: "zuweisen" }, (j) => `${j.vergeben} Nummern vergeben${j.gekauft ? `, ${j.gekauft} neu gekauft` : ""}${j.fehler?.length ? " – " + j.fehler[0] : ""}`)}>Nummern jetzt vergeben</button>
@@ -379,7 +379,7 @@ function Einstellungen({ cfg, speichern, marke }) {
   const [kat, setKat] = useState("Wärmepumpe");
   useEffect(() => {
     setW({
-      ortsnetz: cfg.ortsnetz || "", maxNummern: cfg.maxNummern ?? 30, ruheTage: cfg.ruheTage ?? 42, nachlaufTage: cfg.nachlaufTage ?? 56, vorlaufTage: cfg.vorlaufTage ?? 45,
+      ortsnetz: cfg.ortsnetz || "", maxNummern: cfg.maxNummern ?? 30, ruheTage: cfg.ruheTage ?? 56, nachlaufTage: cfg.nachlaufTage ?? 28, vorlaufTage: cfg.vorlaufTage ?? 21,
       autoZuweisen: cfg.autoZuweisen !== false, autoKaufen: cfg.autoKaufen !== false, bestaetigen: cfg.bestaetigen !== false, mailboxMail: cfg.mailboxMail !== false,
       ziele: cfg.ziele?.length ? cfg.ziele : STANDARD_ZIELE, zeiten: { aktiv: false, tage: [1, 2, 3, 4, 5, 6], von: "08:00", bis: "20:00", ...(cfg.zeiten || {}) },
       mailboxText: cfg.mailboxText || "", ausserhalbText: cfg.ausserhalbText || "", einwilligung: cfg.einwilligung || "", datenschutzHinweis: cfg.datenschutzHinweis || "", benachrichtigen: (cfg.benachrichtigen || []).join(", "),
