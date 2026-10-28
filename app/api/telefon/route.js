@@ -80,7 +80,8 @@ export async function POST(request) {
       case "assistent_aktualisieren": {
         const c = await cfg();
         if (!c.assistentAgentId) return fehler("setup", 409, { detail: "Noch kein Assistent angelegt." });
-        await agentAktualisieren(c.assistentAgentId);
+        const { assistentAbgleichen } = await import("@/lib/telefon/abgleich");
+        await assistentAbgleichen({ erzwingen: true });
         return NextResponse.json({ ok: true });
       }
       case "zuweisen":

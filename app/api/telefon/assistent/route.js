@@ -19,8 +19,8 @@ export async function POST(request) {
       const a = r.angaben;
       await mailAnTeam(
         c,
-        `${r.einwilligung && !r.rueckrufGewuenscht ? "Neuer Lead (Einwilligung da)" : "Rückruf nötig"}: ${a.name || tw.national(r.anruf.von)}${r.anruf.kategorie ? ` · ${r.anruf.kategorie}` : ""}${r.anruf.code ? ` · ${r.anruf.code}` : ""}`,
-        `Der digitale Assistent hat einen Anruf angenommen. ${r.einwilligung ? "Einwilligung zur Weitergabe: ja." : "Keine Einwilligung zur Weitergabe."}${r.rueckrufGewuenscht ? " Anrufer wünscht einen persönlichen Rückruf." : ""}\n\nAnrufer: ${tw.national(r.anruf.von)}${a.rueckrufnummer ? ` (Rückruf an: ${a.rueckrufnummer})` : ""}\n${Object.entries(a).filter(([k]) => k !== "rueckrufnummer").map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nZusammenfassung: ${r.zusammenfassung || "–"}\n\nZurückrufen: ${tw.appUrl()}/telefon`
+        `${r.widerruf ? "WIDERRUF – Partner informieren" : r.einwilligung && !r.rueckrufGewuenscht ? "Neuer Lead (Einwilligung da)" : "Rückruf nötig"}: ${a.name || tw.national(r.anruf.von)}${r.anruf.kategorie ? ` · ${r.anruf.kategorie}` : ""}${r.anruf.code ? ` · ${r.anruf.code}` : ""}`,
+        `${r.widerruf ? "Der Anrufer hat seine Einwilligung widerrufen bzw. will keine Anrufe mehr. Lokalpilot hat seine Kontakte gesperrt. Bitte alle Partner, die den Lead schon bekommen haben, informieren, dass sie ihn nicht mehr kontaktieren und die Daten löschen.\n\n" : ""}Der digitale Assistent hat einen Anruf angenommen. ${r.einwilligung ? "Einwilligung zur Weitergabe: ja." : "Keine Einwilligung zur Weitergabe."}${r.rueckrufGewuenscht ? " Anrufer wünscht einen persönlichen Rückruf." : ""}\n\nAnrufer: ${tw.national(r.anruf.von)}${a.rueckrufnummer ? ` (Rückruf an: ${a.rueckrufnummer})` : ""}\n${Object.entries(a).filter(([k]) => k !== "rueckrufnummer").map(([k, v]) => `${k}: ${v}`).join("\n")}\n\nZusammenfassung: ${r.zusammenfassung || "–"}\n\nZurückrufen: ${tw.appUrl()}/telefon`
       );
     }
   } catch (e) {
