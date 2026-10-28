@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { planen, weiter, freigeben, antwortSenden, wegPruefen, postausgang } from "@/lib/buchung/agent";
-import { holen, aendern, verlauf, adminDb, geheimnisSetzen, einstellungen } from "@/lib/buchung/db";
+import { holen, aendern, verlauf, adminDb, geheimnisSetzen, einstellungen, liste } from "@/lib/buchung/db";
 import { senden } from "@/lib/buchung/mail";
 import { ftpTesten } from "@/lib/buchung/ftp";
 import { verlageSuchen, rechercheWeiter, kandidatRecherchieren, kandidatUebernehmen } from "@/lib/buchung/recherche";
@@ -73,9 +73,30 @@ export async function POST(request) {
       case "abbrechen": {
         const b = await holen("buchungen", id);
         if (!b) return fehler("not_found", 404);
-        for (const aid of b.anzeigeIds || []) await aendern("anzeigen", aid, { buchungGesperrt: true, buchungHinweis: "Buchung von Hand abgebrochen" });
+        if (!b.testmodus) for (const aid of b.anzeigeIds || []) await aendern("anzeigen", aid, { buchungGesperrt: true, buchungHinweis: "Buchung von Hand abgebrochen" });
         await verlauf(id, `Abgebrochen (${user.email}). Bereits verschickte Zusagen bitte beim Verlag stornieren.`, "abbruch", { status: "abgebrochen" });
         return NextResponse.json({ ok: true });
+      }
+      case "tests_aufraeumen": {
+        // Alle Testbuchungen beenden und archivieren; betroffene Anzeigen wieder buchbar machen (Status „geplant“, ohne Sperre,
+        // Kosten zurück auf Listenpreis). Echte Buchungen bleiben unberührt.
+        const tests = await liste("buchungen", (x) => x.testmodus && !x.testArchiviert);
+        let anzeigen = 0;
+        for (const t of tests) {
+          for (const aid of t.anzeigeIds || []) {
+            const a = await holen("anzeigen", aid);
+            if (!a) continue;
+            const vonTest = a.buchungId === t.id || a.testBuchung?.buchungId === t.id || a.buchungGesperrt;
+            if (!vonTest) continue;
+            await aendern("anzeigen", aid, {
+              ...(a.buchungId === t.id ? { status: "geplant", buchungId: "", buchungsnummer: "", gebuchtAm: null, kennzahlen: null, kostenGeschaetzt: false, ...(a.kennzahlen?.listenpreis ? { kosten: a.kennzahlen.listenpreis } : {}) } : {}),
+              testBuchung: null, buchungGesperrt: false, buchungHinweis: "",
+            });
+            anzeigen++;
+          }
+          await verlauf(t.id, `Testbuchung aufgeräumt (${user.email}).`, "abbruch", { status: "abgebrochen", testArchiviert: true });
+        }
+        return NextResponse.json({ ok: true, buchungen: tests.length, anzeigen });
       }
       case "jetzt_senden": {
         const r = await postausgang({ sofortId: String(body.mailId || "") });

@@ -84,9 +84,15 @@ export default function Buchungen({ email }) {
   const allg = d.einstellungen.get("allgemein") || {};
   const blaetter = arr("blaetter").filter((b) => !b.demo).sort((a, b) => String(a.name).localeCompare(String(b.name)));
   const blatt = (id) => d.blaetter.get(id);
-  const buchungen = arr("buchungen").sort((a, b) => (b.erstelltAm || 0) - (a.erstelltAm || 0));
-  const mails = arr("buchung_mails").sort((a, b) => (a.zeit || 0) - (b.zeit || 0));
-  const belegt = new Set(buchungen.filter((b) => !["abgebrochen", "abgelehnt"].includes(b.status)).flatMap((b) => b.anzeigeIds || []));
+  // Testbuchungen (und ihre Mails) nur im Testmodus zeigen; aufgeräumte Tests nie
+  const testAn = cfg.testmodus !== false;
+  const alleBuchungen = arr("buchungen");
+  const offeneTests = alleBuchungen.filter((b) => b.testmodus && !b.testArchiviert);
+  const buchungen = alleBuchungen.filter((b) => !b.testArchiviert && (testAn || !b.testmodus)).sort((a, b) => (b.erstelltAm || 0) - (a.erstelltAm || 0));
+  const sichtbareIds = new Set(buchungen.map((b) => b.id));
+  const mails = arr("buchung_mails").filter((m) => (m.buchungId ? sichtbareIds.has(m.buchungId) : testAn || !m.testmodus)).sort((a, b) => (a.zeit || 0) - (b.zeit || 0));
+  // Testbuchungen belegen keine Anzeige, wenn echt gebucht wird
+  const belegt = new Set(buchungen.filter((b) => !["abgebrochen", "abgelehnt"].includes(b.status) && (testAn || !b.testmodus)).flatMap((b) => b.anzeigeIds || []));
   const offeneAnz = arr("anzeigen")
     .filter((a) => !a.demo && ["freigegeben", "geplant"].includes(a.status) && !belegt.has(a.id))
     .sort((a, b) => String(a.datum || "9").localeCompare(String(b.datum || "9")));
@@ -145,6 +151,11 @@ export default function Buchungen({ email }) {
       <section className="bk-karte">
         <div className="bk-sechead">
           <h2>Buchungen</h2>
+          {!!offeneTests.length && (
+            <button className="b small ghost" onClick={() => confirm(`${offeneTests.length} Testbuchung(en) aufräumen? Die Anzeigen werden wieder buchbar (Status „geplant“). Echte Buchungen bleiben unberührt.`) && tun({ aktion: "tests_aufraeumen" }, "Testbuchungen aufgeräumt")}>
+              Testbuchungen aufräumen ({offeneTests.length})
+            </button>
+          )}
           <div className="bk-tabs">
             {[["offen", "Offen"], ["hilfe", `Brauchen euch (${zaehler.hilfe})`], ["alle", "Alle"]].map(([k, l]) => (
               <button key={k} className={filter === k ? "an" : ""} onClick={() => setFilter(k)}>{l}</button>
