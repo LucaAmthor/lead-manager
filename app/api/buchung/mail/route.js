@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { signaturOk } from "@/lib/buchung/mail";
 import { mailEingang } from "@/lib/buchung/agent";
+import { istPostfach, postfachEingang } from "@/lib/postfach";
 
 // Resend-Webhook „email.received“: Antworten der Verlage kommen hier an.
 // In Resend: Webhooks → Endpoint https://<app>/api/buchung/mail, Event email.received, Secret als RESEND_WEBHOOK_SECRET.
@@ -20,7 +21,9 @@ export async function POST(request) {
   // sofort 200 zurück (Resend wiederholt sonst), Auswertung danach
   after(async () => {
     try {
-      await mailEingang(id);
+      // Mails an info@modernisieren24.de (weitergeleitet an postfach@lokalpilot.app) → Postfach, sonst Buchungs-Agent
+      if (istPostfach(ev.data.to)) await postfachEingang(id);
+      else await mailEingang(id);
     } catch (e) {
       console.error("Buchung: Mail-Eingang fehlgeschlagen", id, e);
     }
