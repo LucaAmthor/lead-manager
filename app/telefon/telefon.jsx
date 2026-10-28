@@ -150,9 +150,9 @@ export default function Telefon({ email }) {
                   <td>{zeit(a.start)}{a.ausserhalb ? <div className="muted">außerhalb der Zeiten</div> : null}</td>
                   <td><b>{national(a.richtung === "aus" ? a.an : a.von)}</b>{a.stadtAnrufer ? <div className="muted">{a.stadtAnrufer}</div> : null}</td>
                   <td><span className="mono">{a.code || "–"}</span><div className="muted">{[a.kategorie, a.blatt || an?.stadt, a.kanal === "social" ? "Social" : ""].filter(Boolean).join(" · ")}</div></td>
-                  <td><span className={"tf-st " + a.status}>{STATUS[a.status] || a.status}</span>{a.ueberlauf ? <div className="muted">Überlauf</div> : null}</td>
+                  <td><span className={"tf-st " + a.status}>{STATUS[a.status] || a.status}</span>{a.ueberlauf ? <div className="muted">Überlauf</div> : null}{a.assistent ? <details><summary className="linkbtn">Gespräch</summary><Assistent a={a.assistent} /></details> : null}</td>
                   <td>{a.angenommenEmail || a.angenommenVon || "–"}</td>
-                  <td className="mono">{min(a.gespraechSek)}</td>
+                  <td className="mono">{min(a.gespraechSek || a.assistent?.sek)}</td>
                   <td>{k ? <>{k.name || "–"}{k.qualifiziert ? <div className="good">qualifiziert</div> : null}</> : "–"}</td>
                 </tr>
               );
