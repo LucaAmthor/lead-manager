@@ -19,7 +19,33 @@
   const KATEGORIEN = [...LEAD_KATS, "Sammelanzeige"];
   const KAT_KURZ = { ...Object.fromEntries(LEAD_KATS.map((k) => [k, KAT_INFO[k].k])), "Sammelanzeige": "SA" };
   const katListe = () => LEAD_KATS.map((k) => `${k} (Anbieter: ${KAT_INFO[k].anbieter})`).join(", ");
-  const BOTSCHAFTEN = ["Frist / Förderung", "Kostenfrage", "Emotion", "Ratgeber-Köder", "Lokales Vertrauen"];
+  // Angles = die zentrale Botschaft einer Anzeige (worauf sie den Leser packt). Jeder Angle wird getestet; das Lern-Modell
+  // spielt die erfolgreichen öfter aus (Thompson-Sampling), probiert aber weiter auch ungetestete.
+  const ANGLES = [
+    { id: "Geld sparen", d: "laufende Heiz- oder Stromkosten senken, die Rechnung wird kleiner" },
+    { id: "Förderung / Zuschuss", d: "staatlichen Zuschuss mitnehmen (nur „bis zu“, nur geprüfte Zahlen, keine Fristen erfinden)" },
+    { id: "Preis vergleichen", d: "3 Angebote = fairer Preis, nicht zu viel bezahlen" },
+    { id: "Schnelle Abwicklung", d: "ein Anruf, schnell Angebote, zügig erledigt" },
+    { id: "Wenig Stress", d: "wir kümmern uns, Sie müssen nichts selbst suchen" },
+    { id: "Einfachheit", d: "in wenigen Minuten am Telefon erledigt, keine Formulare, kein Internet nötig" },
+    { id: "Sicherheit / kein Ausfall", d: "nicht im Winter mit kaputter alter Anlage dastehen" },
+    { id: "Unabhängigkeit", d: "weniger abhängig von Öl- und Gaspreisen und Energiekonzernen" },
+    { id: "Werterhalt der Immobilie", d: "das Haus modern halten, Wert für später, Verkauf oder Erben" },
+    { id: "Gesetz / Pflicht", d: "Vorschriften und Austauschpflichten (nur geprüfte Fakten, sonst nicht verwenden)" },
+    { id: "Frist / Dringlichkeit", d: "jetzt handeln, bevor sich etwas ändert (nur echte, geprüfte Fristen)" },
+    { id: "Lokales Vertrauen", d: "Betriebe aus der Nähe, die die Region kennen" },
+    { id: "Persönliche Beratung", d: "ein Ansprechpartner am Telefon, persönlich statt anonym" },
+    { id: "Komfort", d: "angenehme Wärme, leise, moderne Technik" },
+    { id: "Umwelt / Zukunft", d: "klimafreundlich, für Kinder und Enkel" },
+    { id: "Familie / Vorsorge", d: "für sich oder die Eltern vorsorgen, Angehörige entlasten" },
+    { id: "Ratgeber / Neugier", d: "Fragen, die man sich stellt: Was kostet das wirklich? Lohnt sich das?" },
+    { id: "Nachbarn machen's schon", d: "viele Hausbesitzer in der Stadt modernisieren gerade (ohne erfundene Zahlen)" },
+    { id: "Emotion", d: "Gefühl, Geschichte oder Humor ohne Sachargument" },
+  ];
+  const ANGLE_ALT = { "Kostenfrage": "Geld sparen", "Frist / Förderung": "Förderung / Zuschuss", "Ratgeber-Köder": "Ratgeber / Neugier" };
+  const normAngle = (x) => ANGLE_ALT[x] || x || "Emotion";
+  const BOTSCHAFTEN = ANGLES.map((a) => a.id);
+  const ANGLE_AUTO = "Agent wählt (lernt)";
   const TOENE = ["Seriös", "Sachlich", "Emotional", "Humor", "Ironisch", "Provokant", "Nostalgisch", "Lokalstolz"];
   const VIRAL = [
     { id: "Klassisch", d: "Kein Viral-Baustein, klare Nutzen-Anzeige." },
@@ -190,12 +216,13 @@
     if (dim === "layout") return LAYOUTS[a.layout] || "unbekannt";
     if (dim === "viral") return a.viral || "Klassisch";
     if (dim === "ton") return a.ton || "—";
+    if (dim === "botschaft") return normAngle(a.botschaft);
     return a[dim] || "—";
   }
 
   // ================= Smart-Modell =================
   // Bayes-geglättete Leads pro Euro je Merkmal; Prognose = global × Produkt der Faktoren.
-  const FEATS = [["kategorie", (a) => a.kategorie], ["viral", (a) => a.viral || "Klassisch"], ["ton", (a) => a.ton || "—"], ["stadt", stadtOf], ["layout", (a) => a.layout || "A"]];
+  const FEATS = [["kategorie", (a) => a.kategorie], ["angle", (a) => normAngle(a.botschaft)], ["viral", (a) => a.viral || "Klassisch"], ["ton", (a) => a.ton || "—"], ["stadt", stadtOf], ["layout", (a) => a.layout || "A"], ["format", (a) => a.format || "q-hoch"]];
   const PRIOR = 1500; // € Kosten, die ein Merkmal braucht, bevor seine Daten so viel zählen wie der Durchschnitt
   function trainModel(ads) {
     const units = ads.filter((a) => geschaltet(a) && num(a.kosten) > 0).map((a) => ({ a, s: adStats(a) }));
@@ -214,6 +241,56 @@
     // Merkmale hängen oft zusammen (eine Kampagne = eine Stadt + ein Ton + ein Baustein). Gedämpft kombinieren, damit derselbe Effekt nicht mehrfach zählt.
     const r = model.g * Math.exp(k ? ls / Math.sqrt(k) : 0);
     return { rate: r, cpl: r > 0 ? 1 / r : null, conf: k ? w / k : 0 };
+  }
+  // Thompson-Sampling: zieht je Wert (z. B. je Angle) eine plausible Lead-Rate aus den eigenen Daten + Vorwissen.
+  // Bewährtes gewinnt meistens, Ungetestetes kommt trotzdem regelmäßig dran – so lernt das System weiter.
+  function gammaZufall(k) {
+    if (k < 1) return gammaZufall(k + 1) * Math.pow(Math.random(), 1 / k);
+    const d = k - 1 / 3, c = 1 / Math.sqrt(9 * d);
+    for (;;) {
+      let x, v;
+      do { x = Math.sqrt(-2 * Math.log(Math.random() || 1e-12)) * Math.cos(2 * Math.PI * Math.random()); v = 1 + c * x; } while (v <= 0);
+      v = v * v * v; const u = Math.random();
+      if (u < 1 - 0.0331 * x ** 4 || Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
+    }
+  }
+  function thompson(model, feat, werte) {
+    const g = model?.g;
+    return werte.map((v) => { const e = model?.f?.[feat]?.get(v); const a = g ? num(e?.l) + PRIOR * g : 1, b = g ? num(e?.c) + PRIOR : 1; return { v, s: gammaZufall(a) / b, n: e?.n || 0 }; }).sort((x, y) => y.s - x.s);
+  }
+  // Pro neuer Anzeige ein Angle per Thompson-Ziehung (Reihenfolge = Vorschlag an den Agenten)
+  const angleZiehungen = (model, n) => Array.from({ length: n }, () => thompson(model, "angle", BOTSCHAFTEN)[0].v);
+
+  // Erfolgs-Score 0–100 für eine geplante Kampagne. Mit eigenen Daten: Lern-Modell (erwartete Kosten pro Lead vs. Ziel =
+  // halber Erlös je Lead). Ohne Daten: Vorwissen – Preis je Reichweite der Blätter (TKP) und Thema. Gewichtet nach Sicherheit.
+  const KAT_VORWISSEN = { "Heizung": 8, "Wärmepumpe": 5, "PV": 3, "Treppenlift": 5, "Altenpflege": 3, "Badsanierung": 2 };
+  const ANGLE_VORWISSEN = { "Geld sparen": 4, "Förderung / Zuschuss": 5, "Preis vergleichen": 3, "Einfachheit": 2, "Wenig Stress": 2, "Emotion": -2, "Umwelt / Zukunft": -3 };
+  const begrenzen = (x, a, b) => Math.max(a, Math.min(b, x));
+  function kampagnenScore({ blaetter, kats, ton, viral, angle }) {
+    if (!blaetter.length || !kats.length) return null;
+    const model = trainModel(A()); const ziel = (num(S.settings.erloes) || 105) / 2;
+    let summe = 0, sicher = 0, n = 0; const tkps = [];
+    for (const b of blaetter) for (const k of kats) {
+      const preis = stdPreis(b, "q-hoch"), auflage = num(b.auflage); const tkp = preis && auflage ? preis / (auflage / 1000) : null;
+      if (tkp) tkps.push(tkp);
+      let s = begrenzen((tkp ? 95 - 1.6 * tkp : 50) + (KAT_VORWISSEN[k] || 0) + (angle && angle !== ANGLE_AUTO ? ANGLE_VORWISSEN[angle] || 0 : 3), 5, 95), conf = 0;
+      if (model) {
+        const p = predict(model, { kategorie: k, stadt: b.stadt, ...(ton && ton !== "Mix testen" ? { ton } : {}), ...(viral && viral !== "Agent wählt" ? { viral } : {}), ...(angle && angle !== ANGLE_AUTO ? { angle } : {}) });
+        if (p.cpl) { const r = ziel / p.cpl; conf = p.conf; s = conf * (100 * r / (1 + r)) + (1 - conf) * s; }
+      }
+      summe += s; sicher += conf; n++;
+    }
+    return { score: Math.round(summe / n), conf: sicher / n, tkp: tkps.length ? tkps.reduce((x, y) => x + y, 0) / tkps.length : null, ziel, mitModell: !!model };
+  }
+  function renderKwScore() {
+    const el = $("kw-score"); if (!el) return;
+    const r = kampagnenScore({ blaetter: readChecks($("kw-blaetter")).map(blattById).filter(Boolean), kats: readChecks($("kw-kat")), ton: $("kw-ton").value, viral: $("kw-viral").value, angle: $("kw-angle")?.value });
+    if (!r) { el.innerHTML = `<p class="hint">Blatt und Kategorie wählen, dann zeigt Lokalpilot hier, wie gut die Kampagne wahrscheinlich läuft.</p>`; return; }
+    const cls = r.score >= 65 ? "gut" : r.score >= 45 ? "mittel" : "schwach";
+    const grund = r.conf < 0.2
+      ? `Noch kaum eigene Ergebnisse: Der Score stützt sich vor allem auf den Preis je Reichweite der Blätter${r.tkp ? ` (Ø ${eur(r.tkp, 2)} je 1.000 Exemplare)` : ""}, das Thema und den Angle. Mit jeder erschienenen Anzeige wird er genauer.`
+      : `Aus dem Lern-Modell: erwartete Kosten pro Lead im Vergleich zum Ziel (${eur(r.ziel)} = halber Erlös je Lead).`;
+    el.innerHTML = `<div class="kwscore-box ${cls}"><div class="kwscore-zahl">${r.score}</div><div><b>Erfolgs-Score</b> <span class="hint">0–100 · Sicherheit ${confLabel(r.conf)}</span><p class="hint">${esc(grund)}</p></div></div>`;
   }
   const confLabel = (c) => c > .6 ? "hoch" : c > .35 ? "mittel" : "niedrig";
 
@@ -624,6 +701,7 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
     toast(`${ok} von ${ads.length} Bildern erzeugt`); btn.disabled = false; btn.textContent = alt;
   }
   function renderKampagnen() {
+    renderKwScore();
     const el = $("k-kampagnen"); const list = KP().map((k) => ({ k, s: kampStats(k) }));
     if (!list.length) { el.innerHTML = `<div class="empty"><strong>Noch keine Kampagne</strong>Fülle links aus und klick auf „Kampagne erstellen“.</div>`; return; }
     if ($("k-sort").value === "cpl") list.sort((x, y) => (x.s.cpl ?? Infinity) - (y.s.cpl ?? Infinity)); else list.sort((x, y) => num(y.k.createdAt) - num(x.k.createdAt));
@@ -676,6 +754,7 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
   const kwLog = (t) => { const l = $("kw-log"); l.hidden = false; l.insertAdjacentHTML("beforeend", `<div>${esc(t)}</div>`); };
   function nextCodeFactory() { const used = new Set(S.anzeigen.map((a) => a.code)); return (stadt, kat) => { const p = `${prefix(stadt)}-${KAT_KURZ[kat] || "XX"}-`; let i = 1; while (used.has(p + String(i).padStart(3, "0"))) i++; const c = p + String(i).padStart(3, "0"); used.add(c); return c; }; }
   $("kw-stop").addEventListener("click", () => kwCtl?.abort());
+  ["input", "change"].forEach((ev) => $("kw-form").addEventListener(ev, renderKwScore));
   $("kw-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!sample) { toast("Der Agent ist in dieser Ansicht nicht verfügbar."); return; }
@@ -685,23 +764,27 @@ Antworte nur mit JSON: {"ideen":[{"titel":"max 8 Wörter","beschreibung":"1-2 S�
     if (!blaetter.length || !kats.length) { toast("Mindestens ein Blatt und eine Kategorie wählen."); return; }
     if (!von || !bis || bis < von) { toast("Zeitraum prüfen."); return; }
     if (!budget) { toast("Budget eintragen."); return; }
-    const ton = $("kw-ton").value, viral = $("kw-viral").value, motive = $("kw-motive").value;
+    const ton = $("kw-ton").value, viral = $("kw-viral").value, motive = $("kw-motive").value, angleWahl = $("kw-angle")?.value || ANGLE_AUTO;
     const bl = blaetter.map((b) => ({ id: b.id, name: b.name, stadt: b.stadt, erscheint: b.tag, auflage: b.auflage, preise: b.preisInfo || "unbekannt", standardpreiseNetto: stdPreisListe(b), termine: erscheinungstermine(b, von, bis) }));
     if (!bl.some((b) => b.termine.length)) { toast("Im Zeitraum erscheint keines der Blätter."); return; }
     const bib = motive === "neu" ? [] : S.anzeigen.filter((a) => !a.demo && a.motiv && kats.includes(a.kategorie)).map((a) => ({ code: a.code, kategorie: a.kategorie, ton: a.ton, viral: a.viral, headline: a.motiv.headline, kontakte: adStats(a).kontakte, leads: adStats(a).leads }));
-    const model = trainModel(A()); const prog = model ? bl.flatMap((b) => kats.map((k) => VIRAL.map((v) => ({ stadt: b.stadt, kategorie: k, viral: v.id, cplPrognose: Math.round(predict(model, { kategorie: k, viral: v.id, stadt: b.stadt }).cpl || 0) })))).flat().sort((x, y) => x.cplPrognose - y.cplPrognose).slice(0, 12) : [];
+    const model = trainModel(A());
+    const angleVorgabe = angleWahl === ANGLE_AUTO ? angleZiehungen(model, 24) : null;
+    const prog = model ? bl.flatMap((b) => kats.map((k) => VIRAL.map((v) => ({ stadt: b.stadt, kategorie: k, viral: v.id, cplPrognose: Math.round(predict(model, { kategorie: k, viral: v.id, stadt: b.stadt }).cpl || 0) })))).flat().sort((x, y) => x.cplPrognose - y.cplPrognose).slice(0, 12) : [];
     const prompt = `Du bist der Kampagnen-Agent von Lokalpilot. Du planst Print-Anzeigen in kostenlosen Wochenblättern für die Marke ${marke()} (Vermittlung: Leser bekommen kostenlos 3 Angebote passender Anbieter aus der Region). Kategorien und Anbieter: ${katListe()}.
 Kampagne: ${$("kw-name").value.trim()} · Kategorien: ${kats.join(", ")} · Ton: ${ton} · Viral-Baustein: ${viral} · Zeitraum ${von} bis ${bis} · Budget gesamt netto ${budget} € · Motive: ${motive === "alt" ? "nur vorhandene wiederverwenden" : motive === "neu" ? "nur neue texten" : "vorhandene wiederverwenden, wo passend, sonst neue texten"}.
 Hinweise: ${$("kw-hinweis").value.trim() || "keine"}
 Blätter mit Erscheinungsterminen (nur diese Termine, je Blatt und Termin höchstens eine Anzeige): ${JSON.stringify(bl)}
 Vorhandene Motive: ${JSON.stringify(bib).slice(0, 30000)}
 Lern-Modell, geschätzte Kosten pro Lead der besten Kombinationen: ${JSON.stringify(prog)}
+Angles (zentrale Botschaft der Anzeige): ${ANGLES.map((a) => `${a.id}: ${a.d}`).join(" | ")}
+${angleVorgabe ? `Angle je neuer Anzeige in dieser Reihenfolge verwenden (vom Lern-Modell per Thompson-Sampling gezogen: Bewährtes öfter, Ungetestetes zum Lernen): ${JSON.stringify(angleVorgabe)}. Die Headline muss diesen Angle klar tragen.` : `Alle Anzeigen mit dem Angle „${angleWahl}“.`}
 Viral-Bausteine:
 ${viralText}
 Layouts: A Foto + 3 Häkchen, B Frage + Badge, C Ein Anruf. Drei Angebote., D 3 Schritte, P Format-Parodie.
 ${RULES}
 Kosten je Schaltung aus den Preisangaben ableiten, sonst realistisch schätzen (1/4 Seite im Anzeigenblatt ca. 350-900 €) und kostenGeschaetzt=true. Summe <= Budget. Wiederholung ist im Print wichtig. Wenn "Mix testen" gewählt ist, Töne/Bausteine bewusst variieren, damit das Lern-Modell vergleichen kann.
-Antworte nur mit JSON: {"zusammenfassung":"2 Sätze","platzierungen":[{"blattId":"...","datum":"YYYY-MM-DD","kategorie":"...","motivCode":"Code oder null","neu":{"headline":"...","unterzeile":"...","bullets":["...","...","..."],"cta":"Jetzt anrufen:","layout":"A","ton":"...","viral":"...","bildidee":"1 Satz Bildmotiv (Englisch oder Deutsch), ohne Text im Bild"},"kosten":0,"kostenGeschaetzt":true,"begruendung":"1 Satz"}]}  (neu nur, wenn motivCode null ist)`;
+Antworte nur mit JSON: {"zusammenfassung":"2 Sätze","platzierungen":[{"blattId":"...","datum":"YYYY-MM-DD","kategorie":"...","motivCode":"Code oder null","neu":{"angle":"einer der Angles","headline":"...","unterzeile":"...","bullets":["...","...","..."],"cta":"Jetzt anrufen:","layout":"A","ton":"...","viral":"...","bildidee":"1 Satz Bildmotiv (Englisch oder Deutsch), ohne Text im Bild"},"kosten":0,"kostenGeschaetzt":true,"begruendung":"1 Satz"}]}  (neu nur, wenn motivCode null ist)`;
     kwCtl = new AbortController(); $("kw-go").disabled = true; $("kw-stop").hidden = false; $("kw-log").innerHTML = "";
     kwLog("Lese Blätter, Termine, Motive und Lern-Modell …");
     try {
@@ -715,10 +798,10 @@ Antworte nur mit JSON: {"zusammenfassung":"2 Sätze","platzierungen":[{"blattId"
       kwLog(`${pl.length} Schaltungen geplant, ${eur(total)} von ${eur(budget)}.`);
       const kref = await db.collection("kampagnen").add({ name: $("kw-name").value.trim(), marke: marke(), kategorien: kats, ton, viral, von, bis, budget, blaetter: blaetter.map((b) => b.id), zusammenfassung: String(res.zusammenfassung || ""), planKosten: total, status: auto ? "Freigegeben" : "Wartet auf Freigabe", erstelltVon: "Kampagnen-Agent", kiKosten: [kiLauf], createdAt: Date.now(), ...(auto ? { freigegebenAm: Date.now() } : {}) });
       const neueIds = []; kwLog("Kampagne angelegt. Lege Anzeigen mit Tracking-Codes an …");
-      const code = nextCodeFactory(); let n = 0;
+      const code = nextCodeFactory(); let n = 0, neuNr = 0;
       for (const x of pl) {
         const b = blattById(x.blattId); const src = x.motivCode ? S.anzeigen.find((a) => a.code === x.motivCode && a.motiv) : null; const nu = x.neu || {};
-        const body = { code: code(b.stadt, x.kategorie), kampagneId: kref.id, blattId: x.blattId, kategorie: x.kategorie, botschaft: src?.botschaft || "Emotion", ton: src?.ton || nu.ton || (ton === "Mix testen" ? "Humor" : ton), viral: src?.viral || nu.viral || (viral === "Agent wählt" ? "Klassisch" : viral), layout: src?.layout || nu.layout || "A", format: "q-hoch", kontaktwege: ["Telefon", "URL", "QR-Code"], datum: String(x.datum), kosten: Math.max(0, num(x.kosten)) || stdPreis(blattById(x.blattId), "q-hoch") || 0, kostenGeschaetzt: num(x.kosten) > 0 ? !!x.kostenGeschaetzt : !stdPreis(blattById(x.blattId), "q-hoch"), status: auto ? "freigegeben" : "geplant", trackingNummer: "", marke: marke(), notiz: "Kampagnen-Agent: " + String(x.begruendung || ""), createdAt: Date.now() };
+        const body = { code: code(b.stadt, x.kategorie), kampagneId: kref.id, blattId: x.blattId, kategorie: x.kategorie, botschaft: angleWahl !== ANGLE_AUTO ? angleWahl : src ? normAngle(src.botschaft) : (BOTSCHAFTEN.includes(nu.angle) ? nu.angle : angleVorgabe?.[neuNr++ % 24] || "Emotion"), ton: src?.ton || nu.ton || (ton === "Mix testen" ? "Humor" : ton), viral: src?.viral || nu.viral || (viral === "Agent wählt" ? "Klassisch" : viral), layout: src?.layout || nu.layout || "A", format: "q-hoch", kontaktwege: ["Telefon", "URL", "QR-Code"], datum: String(x.datum), kosten: Math.max(0, num(x.kosten)) || stdPreis(blattById(x.blattId), "q-hoch") || 0, kostenGeschaetzt: num(x.kosten) > 0 ? !!x.kostenGeschaetzt : !stdPreis(blattById(x.blattId), "q-hoch"), status: auto ? "freigegeben" : "geplant", trackingNummer: "", marke: marke(), notiz: "Kampagnen-Agent: " + String(x.begruendung || ""), createdAt: Date.now() };
         if (src) body.motiv = { ...src.motiv, vonAnzeige: src.code };
         else if (nu.headline) { body.motiv = { typ: "entwurf", headline: String(nu.headline), unterzeile: String(nu.unterzeile || ""), bullets: (Array.isArray(nu.bullets) ? nu.bullets : []).slice(0, 3).map(String), cta: String(nu.cta || "Jetzt anrufen:"), layout: body.layout, bildidee: String(nu.bildidee || "") }; body.motiv.bildPrompt = bildPrompt(body.motiv, body); }
         const neu = await db.collection("anzeigen").add(body); n++; if (neu?.id) neueIds.push(neu.id);
@@ -815,7 +898,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
   function editAd(a) {
     if (adView === "vorschau") setAdView("liste");
     editingAd = a.id; $("ad-form-title").textContent = `Anzeige ${a.code} bearbeiten`; $("a-save").textContent = "Änderungen speichern"; $("a-cancel").hidden = false;
-    $("a-kampagne").value = a.kampagneId || ""; $("a-blatt").value = a.blattId || ""; $("a-kategorie").value = a.kategorie; $("a-botschaft").value = a.botschaft || BOTSCHAFTEN[2]; $("a-ton").value = a.ton || "Seriös"; $("a-viral").value = a.viral || "Klassisch"; $("a-layout").value = a.layout || "A"; $("a-format").value = a.format || "q-hoch";
+    $("a-kampagne").value = a.kampagneId || ""; $("a-blatt").value = a.blattId || ""; $("a-kategorie").value = a.kategorie; $("a-botschaft").value = normAngle(a.botschaft); $("a-ton").value = a.ton || "Seriös"; $("a-viral").value = a.viral || "Klassisch"; $("a-layout").value = a.layout || "A"; $("a-format").value = a.format || "q-hoch";
     setChecks($("a-kontaktwege"), a.kontaktwege); $("a-datum").value = a.datum || ""; $("a-kosten").value = a.kosten ?? ""; $("a-status").value = a.status; $("a-nummer").value = a.trackingNummer || ""; $("a-notiz").value = a.notiz || ""; updateCodeHint(); filterZaehlerAlle(); $("ad-form").scrollIntoView({ behavior: "smooth", block: "start" });
   }
   $("ad-form").addEventListener("submit", async (e) => {
@@ -942,7 +1025,7 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
   const FZ_GRUPPEN = [
     [["st-kampagne", fzKamp, [""]], ["st-blatt", fzBlatt, [""]], ["st-kategorie", fzKat], ["st-ton", fzTon], ["st-viral", fzViral], ["st-layout", fzLayout, ["auto"]]],
     [["kw-blaetter", fzBlatt], ["kw-kat", fzKat], ["kw-ton", fzTon, ["Mix testen"]], ["kw-viral", fzViral, ["Agent wählt"]]],
-    [["a-kampagne", fzKamp, [""]], ["a-blatt", fzBlatt, [""]], ["a-kategorie", fzKat], ["a-botschaft", (a) => a.botschaft || BOTSCHAFTEN[2]], ["a-ton", fzTon], ["a-viral", fzViral], ["a-layout", fzLayout], ["a-format", (a) => a.format || "q-hoch"], ["a-status", (a) => a.status || "geplant"]],
+    [["a-kampagne", fzKamp, [""]], ["a-blatt", fzBlatt, [""]], ["a-kategorie", fzKat], ["a-botschaft", (a) => normAngle(a.botschaft)], ["a-ton", fzTon], ["a-viral", fzViral], ["a-layout", fzLayout], ["a-format", (a) => a.format || "q-hoch"], ["a-status", (a) => a.status || "geplant"]],
     [["ad-kampagne", fzKamp, [""]], ["ad-filter", (a) => a.status || "", [""]]],
   ].map((g) => g.map(([id, wert, alle = []]) => ({ id, wert, alle })));
   function zeigeZaehler(gruppe) {
@@ -975,7 +1058,7 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
 
   // Formular-Grundwerte
   $("a-kategorie").innerHTML = options(KATEGORIEN); $("st-kategorie").innerHTML = options(KATEGORIEN.filter((k) => k !== "Sammelanzeige"));
-  $("a-botschaft").innerHTML = options(BOTSCHAFTEN, "Emotion");
+  $("a-botschaft").innerHTML = options(BOTSCHAFTEN, "Emotion"); $("kw-angle").innerHTML = options([ANGLE_AUTO, ...BOTSCHAFTEN], ANGLE_AUTO);
   $("a-ton").innerHTML = options(TOENE, "Humor"); $("st-ton").innerHTML = options(TOENE, "Ironisch"); $("kw-ton").innerHTML = options(["Mix testen", ...TOENE], "Mix testen");
   $("a-viral").innerHTML = options(VIRAL.map((v) => v.id)); $("st-viral").innerHTML = options(VIRAL.map((v) => v.id), "Format-Parodie"); $("kw-viral").innerHTML = options(["Agent wählt", ...VIRAL.map((v) => v.id)], "Agent wählt");
   $("a-layout").innerHTML = options(Object.entries(LAYOUTS).map(([value, label]) => ({ value, label })), "A"); $("st-layout").innerHTML = `<option value="auto">KI wählt passend</option>` + options(Object.entries(LAYOUTS).map(([value, label]) => ({ value, label })));
@@ -1024,6 +1107,7 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
     "kw-kat": "Wofür geworben wird. Der Agent verteilt die Schaltungen auf diese Kategorien, jede Anzeige bekommt genau eine.",
     "kw-ton": "Tonalität der Texte (seriös, humorvoll, ironisch …). „Mix testen“: Der Agent mischt bewusst verschiedene Töne, damit Analytics später zeigt, welcher am besten wirkt.",
     "kw-viral": "Der kreative Kniff, der eine Anzeige auffallen und weitererzählen lässt, z. B. Serienfigur, Format-Parodie, Lokalpatriotismus. „Klassisch“ = normale Nutzen-Anzeige als Vergleichsgruppe. „Agent wählt“: Der Agent entscheidet je Anzeige, auch nach dem Lern-Modell.",
+    "kw-angle": "Die zentrale Botschaft der Anzeige, z. B. Geld sparen, Förderung, schnelle Abwicklung, wenig Stress. „Agent wählt (lernt)“: Lokalpilot zieht je Anzeige einen Angle aus dem Lern-Modell – bewährte öfter, ungetestete zum Ausprobieren. So findet das System heraus, welche Botschaft je Thema und Stadt am besten wirkt.",
     "kw-budget": "Gesamtbudget netto für die Zeitungsschaltungen der ganzen Kampagne. Der Agent plant nur so viele Termine, wie hineinpassen. KI-Texte und -Bilder kosten zusätzlich meist nur Cent-Beträge.",
     "kw-motive": "Ein Motiv ist eine fertige Anzeige (Headline, Text, Bild) mit eigenem Code.\n• Vorhandene + neue: Der Agent nimmt eure bewährten Motive (z. B. die Punk-Serie), wo sie passen, und textet für den Rest neue.\n• Nur vorhandene: nichts Neues, nur schon erstellte Motive wieder schalten. Gut, um Gewinner in einer neuen Stadt zu testen.\n• Nur neue texten: alles frisch, alte Motive bleiben außen vor.\nNeue Motive brauchen danach noch ein Bild (Higgsfield).",
     "kw-von": "Zeitraum, in dem die Anzeigen erscheinen sollen (nicht das Buchungsdatum). Der Agent sucht darin die Erscheinungstage der gewählten Blätter, z. B. jeden Samstag, und verteilt die Schaltungen darauf. Achtung: Der Anzeigenschluss liegt meist einige Tage vor dem Erscheinen, also den Start nicht zu knapp wählen. Vorbelegt ist „in 2 bis 10 Wochen“.",

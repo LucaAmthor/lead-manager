@@ -392,3 +392,12 @@ details.settings summary{cursor:pointer;font-weight:600;font-size:14px}
 option.fz-null{color:var(--ink-3)}
 .checks .fz{color:var(--ink-3);font-size:12px}
 .checks label.fz-null{color:var(--ink-3)}
+
+/* Erfolgs-Score über „Kampagne erstellen“ */
+.kwscore{margin:6px 0 12px}
+.kwscore-box{display:flex;gap:14px;align-items:center;padding:12px 14px;border-radius:12px;border:1.5px solid var(--line,#ddd);background:var(--surface-2,#f6f6f2)}
+.kwscore-box .hint{margin-top:3px}
+.kwscore-zahl{font:800 34px/1 var(--display,inherit);min-width:64px;height:64px;border-radius:50%;display:grid;place-items:center;color:#fff;flex:none}
+.kwscore-box.gut .kwscore-zahl{background:var(--good,#1f9d55)}
+.kwscore-box.mittel .kwscore-zahl{background:var(--warn,#d99a00)}
+.kwscore-box.schwach .kwscore-zahl{background:var(--crit,#d64545)}
