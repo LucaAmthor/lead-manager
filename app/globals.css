@@ -401,3 +401,12 @@ option.fz-null{color:var(--ink-3)}
 .kwscore-box.gut .kwscore-zahl{background:var(--good,#1f9d55)}
 .kwscore-box.mittel .kwscore-zahl{background:var(--warn,#d99a00)}
 .kwscore-box.schwach .kwscore-zahl{background:var(--crit,#d64545)}
+
+/* Schnellauswahl im Formular „Neue Kampagne“ */
+.kwmodus .modi{display:grid;gap:6px}
+.kwmodus label.modus{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border:1.5px solid var(--line,#ddd);border-radius:10px;cursor:pointer;background:var(--surface,#fff)}
+.kwmodus label.modus:has(input:checked){border-color:var(--brand,#2b30e6);background:var(--brand-soft,#eef0ff)}
+.kwmodus label.modus input{margin-top:3px}
+.kwmodus label.modus span{display:flex;flex-direction:column;gap:2px}
+.kwmodus label.modus small{color:var(--ink-3,#666);font-size:12px;line-height:1.35}
+.checks label.ki-aus{opacity:.45}
