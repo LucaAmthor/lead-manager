@@ -584,8 +584,10 @@ function Vergleich({ blaetter, buchungen, anzeigen, kontakte, cfg }) {
     return { n: ads.length, kosten, anfragen: ks.length, leads, erloes, jeAnfrage: ks.length ? kosten / ks.length : null, jeLead: leads ? kosten / leads : null, jeEuro: kosten ? erloes / kosten : null };
   };
   const zeilen = blaetter.map((b) => {
-    const liste = standardpreis(b, "q-hoch").preis;
-    const vpListe = liste ? vergleichspreis(liste, ["q-hoch"], b) : null;
+    // Listenpreis der 1/8 Seite; Vergleichspreis (je 1/8 Seite) aus dem genauesten bekannten Preis (1/4 mit echtem Druckmaß, sonst 1/8)
+    const liste = standardpreis(b, "achtel").preis;
+    const viertel = standardpreis(b, "q-hoch").preis;
+    const vpListe = viertel ? vergleichspreis(viertel, ["q-hoch"], b) : liste ? vergleichspreis(liste, ["achtel"], b) : null;
     const gezahlt = buchungen.filter((x) => x.blattId === b.id && x.kennzahlen?.vergleichspreis).map((x) => x.kennzahlen.vergleichspreis);
     return { b, liste, vpListe, vpGezahlt: gezahlt.length ? Math.min(...gezahlt) : null, e: ergebnis(erschienen.filter((a) => a.blattId === b.id)) };
   }).sort((x, y) => (x.e.jeAnfrage ?? 1e9) - (y.e.jeAnfrage ?? 1e9) || (x.vpGezahlt ?? x.vpListe ?? 1e9) - (y.vpGezahlt ?? y.vpListe ?? 1e9));
@@ -598,7 +600,7 @@ function Vergleich({ blaetter, buchungen, anzeigen, kontakte, cfg }) {
         <span className="bk-hint">Vorher: <b>Vergleichspreis</b> = was es kostet, 1.000 Exemplare mit einer 1/8 Seite zu erreichen (jede Größe, jedes Blatt – kleiner ist günstiger){grenze ? `, eure Grenze ${eur(grenze)}` : ""}. Nachher: <b>Kosten je Anfrage</b> = Anzeigenkosten ÷ eingegangene Kontakte (nur erschienene Anzeigen). Sortiert nach Kosten je Anfrage, solange es noch keine gibt nach Vergleichspreis.</span>
       </div>
       <div className="bk-tabelle"><table>
-        <thead><tr><th>Blatt</th><th>Auflage</th><th>Liste 1/4 Seite</th><th>Vergleichspreis Liste</th><th>Bester gezahlter</th><th>Erschienen</th><th>Anfragen</th><th>Kosten je Anfrage</th><th>Leads</th><th>Kosten je Lead</th><th>Erlös je €</th></tr></thead>
+        <thead><tr><th>Blatt</th><th>Auflage</th><th>Liste 1/8 Seite</th><th>Vergleichspreis Liste</th><th>Bester gezahlter</th><th>Erschienen</th><th>Anfragen</th><th>Kosten je Anfrage</th><th>Leads</th><th>Kosten je Lead</th><th>Erlös je €</th></tr></thead>
         <tbody>
           {zeilen.map(({ b, liste, vpListe, vpGezahlt, e }) => (
             <tr key={b.id}>

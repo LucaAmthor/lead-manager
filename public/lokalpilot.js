@@ -73,7 +73,9 @@
   ];
   // Standardpreis (netto) je Blatt und Format – gleiche Regel wie im Buchungs-Agenten (lib/buchung/regeln.js)
   const SPALTEN_MM = { "1x60": { sp: 1, h: 60 }, "2x95": { sp: 2, h: 95 }, "3x140": { sp: 3, h: 140 }, achtel: { sp: 3, h: 100 } };
-  const stdPreis = (b, fid) => { const p = b?.buchung || {}; const fest = num(p.preise?.[fid]); if (fest > 0) return fest; const mm = num(p.mmPreis), s = SPALTEN_MM[fid]; if (mm > 0 && s) return Math.round(mm * s.sp * s.h * 100) / 100; const v = num(p.preise?.["q-hoch"]); return fid === "achtel" && v > 0 ? Math.round(v / 2 * 100) / 100 : 0; };
+  const stdPreis = (b, fid) => { const p = b?.buchung || {}; const fest = num(p.preise?.[fid]); if (fest > 0) return fest; const mm = num(p.mmPreis), s = SPALTEN_MM[fid]; if (mm > 0 && s) return Math.round(mm * s.sp * s.h * 100) / 100; const v = num(p.preise?.["q-hoch"]); return fid === "achtel" && v > 0 ? Math.round(v * 100 / (num(p.formatMm?.h) || 200) * 100) / 100 : 0; };
+  // Vergleichspreis wie lib/buchung/regeln.js: € je 1.000 Exemplare × 1/8 Seite (141 × 100 mm), aus dem 1/4-Preis mit echtem Druckmaß
+  const vpListe = (b) => { const p = b?.buchung || {}, mm = p.formatMm || {}, auf = num(b?.auflage); const v = stdPreis(b, "q-hoch"), a = stdPreis(b, "achtel"); const preis = v || a; const fl = v ? (num(mm.b) > 0 && num(mm.h) > 0 ? num(mm.b) * num(mm.h) : 141 * 200) : (num(mm.b) || 141) * 100; return preis && auf ? preis / ((auf / 1000) * (fl / (141 * 100))) : null; };
   const stdPreisListe = (b) => Object.fromEntries(FORMATE.map((f) => [f.label, stdPreis(b, f.id)]).filter(([, v]) => v > 0));
   const KANAELE = ["Telefon", "WhatsApp", "QR-Code", "URL"];
   const KONTAKT_KANAELE = [...KANAELE, "Coupon", "Sonstiges"];
@@ -281,9 +283,9 @@
     const model = trainModel(A()); const ziel = (num(S.settings.erloes) || 105) / 2;
     let summe = 0, sicher = 0, n = 0; const tkps = [];
     for (const b of blaetter) for (const k of kats) {
-      const preis = stdPreis(b, "q-hoch"), auflage = num(b.auflage); const tkp = preis && auflage ? preis / (auflage / 1000) : null;
+      const tkp = vpListe(b);
       if (tkp) tkps.push(tkp);
-      let s = begrenzen((tkp ? 95 - 1.6 * tkp : 50) + (KAT_VORWISSEN[k] || 0) + (angle && angle !== ANGLE_AUTO ? ANGLE_VORWISSEN[angle] || 0 : 3), 5, 95), conf = 0;
+      let s = begrenzen((tkp ? 95 - 3.2 * tkp : 50) + (KAT_VORWISSEN[k] || 0) + (angle && angle !== ANGLE_AUTO ? ANGLE_VORWISSEN[angle] || 0 : 3), 5, 95), conf = 0;
       if (model) {
         const p = predict(model, { kategorie: k, stadt: b.stadt, ...(ton && ton !== "Mix testen" ? { ton } : {}), ...(viral && viral !== "Agent wählt" ? { viral } : {}), ...(angle && angle !== ANGLE_AUTO ? { angle } : {}) });
         if (p.cpl) { const r = ziel / p.cpl; conf = p.conf; s = conf * (100 * r / (1 + r)) + (1 - conf) * s; }
@@ -328,10 +330,10 @@
     if (modus === "entdecken") { const z = thompson(model, feat, werte).map((x) => ({ v: x.v, s: x.s * vor(x.v) })); return z.sort((a, b) => b.s - a.s)[0].v; }
     return werte.map((v) => ({ v, s: (model?.f?.[feat]?.get(v)?.factor || 1) * vor(v) })).sort((a, b) => b.s - a.s)[0].v;
   }
-  // Blätter nach erwarteter Leistung: Preis je 1.000 Exemplare (günstiger = besser) × Stadt-Faktor aus dem Lern-Modell
+  // Blätter nach erwarteter Leistung: Vergleichspreis je 1.000 Exemplare × 1/8 Seite (günstiger = besser) × Stadt-Faktor aus dem Lern-Modell
   function rangBlaetter(model, modus) {
     return realBlaetter().map((b) => {
-      const preis = stdPreis(b, "q-hoch"), auf = num(b.auflage); const tkp = preis && auf ? preis / (auf / 1000) : 30;
+      const tkp = vpListe(b) || 15;
       let s = (1 / tkp) * (model?.f?.stadt?.get(b.stadt)?.factor || 1);
       if (modus === "entdecken") s *= gammaZufall(8) / 8; // Streuung, damit auch andere Blätter drankommen
       return { b, s };
@@ -347,7 +349,7 @@
     for (let runde = 0; runde < 52 && proBlatt.some((x) => x.t.length); runde++) {
       for (const x of proBlatt) {
         const datum = x.t.shift(); if (!datum) continue;
-        const blatt = blattById(x.b.id); const kosten = stdPreis(blatt, "q-hoch") || 600;
+        const blatt = blattById(x.b.id); const kosten = stdPreis(blatt, "achtel") || 400;
         if (summe + kosten > budget) continue;
         let kategorie = merkmalWahl(model, "kategorie", kats, modus), motivCode = null, a = null;
         if (modus === "gewinner" || (motive !== "neu" && modus === "best" && gewinner.length)) {
@@ -361,7 +363,7 @@
           ton: fest(ton) || a?.ton || merkmalWahl(model, "ton", TOENE, modus),
           viral: fest(viral) || a?.viral || merkmalWahl(model, "viral", VIRAL.map((v) => v.id), modus),
           layout: a?.layout || merkmalWahl(model, "layout", Object.keys(LAYOUTS), modus),
-          kosten, kostenGeschaetzt: !stdPreis(blatt, "q-hoch"),
+          kosten, kostenGeschaetzt: !stdPreis(blatt, "achtel"),
         });
         summe += kosten;
       }
@@ -376,7 +378,7 @@
     if (!r) { el.innerHTML = `<p class="hint">Blatt und Kategorie wählen, dann zeigt Lokalpilot hier, wie gut die Kampagne wahrscheinlich läuft.</p>`; return; }
     const cls = r.score >= 65 ? "gut" : r.score >= 45 ? "mittel" : "schwach";
     const grund = r.conf < 0.2
-      ? `Noch kaum eigene Ergebnisse: Der Score stützt sich vor allem auf den Preis je Reichweite der Blätter${r.tkp ? ` (Ø ${eur(r.tkp, 2)} je 1.000 Exemplare)` : ""}, das Thema und den Angle. Mit jeder erschienenen Anzeige wird er genauer.`
+      ? `Noch kaum eigene Ergebnisse: Der Score stützt sich vor allem auf den Preis je Reichweite der Blätter${r.tkp ? ` (Ø ${eur(r.tkp, 2)} je 1.000 Exemplare × 1/8 Seite)` : ""}, das Thema und den Angle. Mit jeder erschienenen Anzeige wird er genauer.`
       : `Aus dem Lern-Modell: erwartete Kosten pro Lead im Vergleich zum Ziel (${eur(r.ziel)} = halber Erlös je Lead).`;
     el.innerHTML = `<div class="kwscore-box ${cls}"><div class="kwscore-zahl">${r.score}</div><div><b>Erfolgs-Score</b> <span class="hint">0–100 · Sicherheit ${confLabel(r.conf)}</span><p class="hint">${esc(grund)}</p></div></div>`;
   }
@@ -514,7 +516,7 @@
     limit: { a: "Limit setzen", run: () => actOpen("Limit für automatische Freigabe", `<p class="hint">Kampagnen bis zu diesem Betrag gibt der Agent selbst frei, darüber wartet er auf euren Klick.</p><label class="f">Limit pro Kampagne (€)<input type="number" id="act-limit" min="0" step="100" value="${esc(S.settings.limit ?? 2000)}"></label>`, [{ label: "Speichern", cls: "primary", fn: async () => { if (await saveSettings({ limit: num($("act-limit").value) }, "Limit gespeichert")) actClose(); } }]) },
     preise: { a: "Preisanfragen schreiben", run: () => {
       const bl = realBlaetter(); if (!bl.length) { showTab("blaetter"); return; }
-      actOpen("Mediadaten anfragen", `<p class="hint">Je Verlag eine fertige Anfrage. Kopieren, abschicken, Antwort in „Wochenblätter“ eintragen.</p>` + bl.map((b, i) => copyBlock("act-p" + i, `Betreff: Mediadaten und Preise ${b.name}\n\nGuten Tag,\n\nwir planen ab den nächsten Wochen regelmäßige Anzeigen für ${marke()} im ${b.name} (${b.stadt}). Bitte senden Sie uns die aktuellen Mediadaten mit Preisen für folgende Formate:\n- 1/4 Seite hoch (ca. 141 × 200 mm)\n- 2 Spalten × 95 mm\n- 1 Spalte × 60 mm\n\nInteressant sind außerdem Anzeigenschluss, Rabatte bei Serien (6 und 12 Schaltungen), Platzierungswünsche und das Format der Druckdaten.\n\nVielen Dank und viele Grüße\n${marke()}`, `${b.name}${b.kontakt ? " · " + b.kontakt : ""}`)).join(""));
+      actOpen("Mediadaten anfragen", `<p class="hint">Je Verlag eine fertige Anfrage. Kopieren, abschicken, Antwort in „Wochenblätter“ eintragen.</p>` + bl.map((b, i) => copyBlock("act-p" + i, `Betreff: Mediadaten und Preise ${b.name}\n\nGuten Tag,\n\nwir planen ab den nächsten Wochen regelmäßige Anzeigen für ${marke()} im ${b.name} (${b.stadt}). Bitte senden Sie uns die aktuellen Mediadaten mit Preisen für folgende Formate:\n- 1/8 Seite (ca. 3 Spalten × 100 mm)\n- 1/4 Seite hoch (ca. 141 × 200 mm)\n- 2 Spalten × 95 mm\n\nInteressant sind außerdem Anzeigenschluss, Rabatte bei Serien (6 und 12 Schaltungen), Platzierungswünsche und das Format der Druckdaten.\n\nVielen Dank und viele Grüße\n${marke()}`, `${b.name}${b.kontakt ? " · " + b.kontakt : ""}`)).join(""));
     } },
     abnehmer: { a: "Plan erstellen", run: async () => {
       actBusy("Abnehmer und Preis je Lead", "Die KI erstellt einen Plan für Abnehmer und Lead-Preise …");
@@ -879,7 +881,7 @@ Viral-Bausteine:
 ${viralText}
 Layouts: A Foto + 3 Häkchen, B Frage + Badge, C Ein Anruf. Drei Angebote., D 3 Schritte, P Format-Parodie.
 ${RULES}
-Kosten je Schaltung aus den Preisangaben ableiten, sonst realistisch schätzen (1/4 Seite im Anzeigenblatt ca. 350-900 €) und kostenGeschaetzt=true. Summe <= Budget. Wiederholung ist im Print wichtig. Wenn "Mix testen" gewählt ist, Töne/Bausteine bewusst variieren, damit das Lern-Modell vergleichen kann.
+Kosten je Schaltung aus den Preisangaben ableiten, sonst realistisch schätzen (Format 1/8 Seite = 3 Sp. × 100 mm, im Anzeigenblatt ca. 200-500 €) und kostenGeschaetzt=true. Summe <= Budget. Wiederholung ist im Print wichtig. Wenn "Mix testen" gewählt ist, Töne/Bausteine bewusst variieren, damit das Lern-Modell vergleichen kann.
 Antworte nur mit JSON: {"analyse":"${modus === "ki" ? "deine Abwägung" : "leer lassen"}","zusammenfassung":"2 Sätze","platzierungen":[{"blattId":"...","datum":"YYYY-MM-DD","kategorie":"...","motivCode":"Code oder null","neu":{"angle":"einer der Angles","headline":"...","unterzeile":"...","bullets":["...","...","..."],"cta":"Jetzt anrufen:","layout":"A","ton":"...","viral":"...","bildidee":"1 Satz Bildmotiv (Englisch oder Deutsch), ohne Text im Bild"},"kosten":0,"kostenGeschaetzt":true,"begruendung":"1 Satz"}]}  (neu nur, wenn motivCode null ist)`;
     kwCtl = new AbortController(); $("kw-go").disabled = true; $("kw-stop").hidden = false; $("kw-log").innerHTML = "";
     kwLog("Lese Blätter, Termine, Motive und Lern-Modell …");
@@ -902,7 +904,7 @@ Antworte nur mit JSON: {"analyse":"${modus === "ki" ? "deine Abwägung" : "leer 
       const code = nextCodeFactory(); let n = 0, neuNr = 0;
       for (const x of pl) {
         const b = blattById(x.blattId); const src = x.motivCode ? S.anzeigen.find((a) => a.code === x.motivCode && a.motiv) : null; const nu = x.neu || {};
-        const body = { code: code(b.stadt, x.kategorie), kampagneId: kref.id, blattId: x.blattId, kategorie: x.kategorie, botschaft: angleWahl !== ANGLE_AUTO ? angleWahl : x.angle && BOTSCHAFTEN.includes(x.angle) ? x.angle : src ? normAngle(src.botschaft) : (BOTSCHAFTEN.includes(nu.angle) ? nu.angle : angleVorgabe?.[neuNr++ % 24] || "Emotion"), ton: src?.ton || nu.ton || x.ton || ([KI, "Mix testen"].includes(ton) ? "Humor" : ton), viral: src?.viral || nu.viral || x.viral || (viral === KI ? "Klassisch" : viral), layout: src?.layout || nu.layout || x.layout || "A", format: "q-hoch", kontaktwege: ["Telefon", "URL", "QR-Code"], datum: String(x.datum), kosten: Math.max(0, num(x.kosten)) || stdPreis(blattById(x.blattId), "q-hoch") || 0, kostenGeschaetzt: num(x.kosten) > 0 ? !!x.kostenGeschaetzt : !stdPreis(blattById(x.blattId), "q-hoch"), status: auto ? "freigegeben" : "geplant", trackingNummer: "", marke: marke(), notiz: "Kampagnen-Agent: " + String(x.begruendung || ""), createdAt: Date.now() };
+        const body = { code: code(b.stadt, x.kategorie), kampagneId: kref.id, blattId: x.blattId, kategorie: x.kategorie, botschaft: angleWahl !== ANGLE_AUTO ? angleWahl : x.angle && BOTSCHAFTEN.includes(x.angle) ? x.angle : src ? normAngle(src.botschaft) : (BOTSCHAFTEN.includes(nu.angle) ? nu.angle : angleVorgabe?.[neuNr++ % 24] || "Emotion"), ton: src?.ton || nu.ton || x.ton || ([KI, "Mix testen"].includes(ton) ? "Humor" : ton), viral: src?.viral || nu.viral || x.viral || (viral === KI ? "Klassisch" : viral), layout: src?.layout || nu.layout || x.layout || "A", format: "achtel", kontaktwege: ["Telefon", "URL", "QR-Code"], datum: String(x.datum), kosten: Math.max(0, num(x.kosten)) || stdPreis(blattById(x.blattId), "achtel") || 0, kostenGeschaetzt: num(x.kosten) > 0 ? !!x.kostenGeschaetzt : !stdPreis(blattById(x.blattId), "achtel"), status: auto ? "freigegeben" : "geplant", trackingNummer: "", marke: marke(), notiz: "Kampagnen-Agent: " + String(x.begruendung || ""), createdAt: Date.now() };
         if (src) body.motiv = { ...src.motiv, vonAnzeige: src.code };
         else if (nu.headline) { body.motiv = { typ: "entwurf", headline: String(nu.headline), unterzeile: String(nu.unterzeile || ""), bullets: (Array.isArray(nu.bullets) ? nu.bullets : []).slice(0, 3).map(String), cta: String(nu.cta || "Jetzt anrufen:"), layout: body.layout, bildidee: String(nu.bildidee || "") }; body.motiv.bildPrompt = bildPrompt(body.motiv, body); }
         const neu = await db.collection("anzeigen").add(body); n++; if (neu?.id) neueIds.push(neu.id);
@@ -939,7 +941,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
       const code = nextCodeFactory(); const made = []; const nArr = Math.max(1, (Array.isArray(res) ? res : []).filter((v) => v && v.headline).slice(0, nAnz).length);
       for (const v of arr) {
         const lay = ["A", "B", "C", "D", "P"].includes(v.layout) ? v.layout : layout !== "auto" ? layout : "A";
-        const body = { code: code(b.stadt, kat), kampagneId: $("st-kampagne").value || "", blattId: b.id, kategorie: kat, botschaft: "Emotion", ton, viral, layout: lay, format: "q-hoch", kontaktwege: ["Telefon", "URL", "QR-Code"], datum: "", kosten: null, status: "geplant", trackingNummer: "", marke: marke(), notiz: "KI-Studio: " + String(v.name || ""), kiKosten: [{ art: "KI-Studio", tin: Math.round(stTin / nArr), tout: Math.round(stTout / nArr), am: todayISO() }], createdAt: Date.now() };
+        const body = { code: code(b.stadt, kat), kampagneId: $("st-kampagne").value || "", blattId: b.id, kategorie: kat, botschaft: "Emotion", ton, viral, layout: lay, format: "achtel", kontaktwege: ["Telefon", "URL", "QR-Code"], datum: "", kosten: null, status: "geplant", trackingNummer: "", marke: marke(), notiz: "KI-Studio: " + String(v.name || ""), kiKosten: [{ art: "KI-Studio", tin: Math.round(stTin / nArr), tout: Math.round(stTout / nArr), am: todayISO() }], createdAt: Date.now() };
         body.motiv = { typ: "entwurf", name: String(v.name || ""), headline: String(v.headline), unterzeile: String(v.unterzeile || ""), bullets: (Array.isArray(v.bullets) ? v.bullets : []).slice(0, 3).map(String), cta: String(v.cta || "Jetzt anrufen:"), layout: lay, bildidee: String(v.bildidee || "") };
         body.motiv.bildPrompt = bildPrompt(body.motiv, body);
         const ref = await db.collection("anzeigen").add(body); made.push(ref.id);
@@ -998,7 +1000,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
     }
     $("ad-list").innerHTML = `<div class="tablewrap"><table><thead><tr><th>Code</th><th>Erscheint</th><th>Blatt</th><th>Motiv</th><th>Viral · Ton</th><th>Tracking</th><th class="num">Kosten</th><th class="num">Kont. / Leads</th><th>Status</th><th></th></tr></thead><tbody>${list.map((a) => { const s = adStats(a); const link = adLink(a); return `<tr data-id="${esc(a.id)}"><td class="code">${esc(a.code)}${a.demo ? ` <span class="chip demo">Beispiel</span>` : ""}</td><td>${fmtDate(a.datum)}</td><td class="wrap">${esc(blattById(a.blattId)?.name || "—")}</td><td class="wrap">${esc(a.motiv?.headline || "—")}</td><td>${esc(a.viral || "Klassisch")}<div class="muted">${esc(a.ton || "—")} · Layout ${esc(a.layout || "A")}</div></td><td class="wrap"><div>${esc((a.kontaktwege || []).join(", ") || "—")}</div><div class="muted">${a.trackingNummer ? "☎ " + esc(a.trackingNummer) : "Nummer fehlt"}${link ? "<br>" + esc(link) : ""}${trackingZeile(a)}</div></td><td class="num">${a.kosten != null && a.kosten !== "" ? eur(a.kosten, 2) : "—"}</td><td class="num">${s.kontakte} / ${s.leads}</td><td>${a.demo ? `<span class="chip ${esc(a.status)}">${esc(a.status)}</span>` : `<select class="status" data-act="status" aria-label="Status ${esc(a.code)}">${options(STATUS, a.status)}</select>`}</td><td>${a.demo ? "" : `<div class="btns"><button class="b small ghost" data-act="edit">Bearbeiten</button><button class="b small danger" data-act="del">Löschen</button></div>`}</td></tr>`; }).join("")}</tbody></table></div>`;
   }
-  function resetAdForm() { editingAd = null; $("ad-form").reset(); $("ad-form-title").textContent = "Neue Anzeige"; $("a-save").textContent = "Anzeige anlegen"; $("a-cancel").hidden = true; $("a-status").value = "geplant"; $("a-format").value = "q-hoch"; $("a-ton").value = "Humor"; $("a-viral").value = "Klassisch"; $("a-layout").value = "A"; setChecks($("a-kontaktwege"), ["Telefon", "URL"]); fillSelects(); updateCodeHint(); }
+  function resetAdForm() { editingAd = null; $("ad-form").reset(); $("ad-form-title").textContent = "Neue Anzeige"; $("a-save").textContent = "Anzeige anlegen"; $("a-cancel").hidden = true; $("a-status").value = "geplant"; $("a-format").value = "achtel"; $("a-ton").value = "Humor"; $("a-viral").value = "Klassisch"; $("a-layout").value = "A"; setChecks($("a-kontaktwege"), ["Telefon", "URL"]); fillSelects(); updateCodeHint(); }
   function editAd(a) {
     if (adView === "vorschau") setAdView("liste");
     editingAd = a.id; $("ad-form-title").textContent = `Anzeige ${a.code} bearbeiten`; $("a-save").textContent = "Änderungen speichern"; $("a-cancel").hidden = false;
@@ -1148,13 +1150,13 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
     });
   }
   function filterZaehlerAlle() { FZ_GRUPPEN.forEach(zeigeZaehler); }
-  // KI-Studio: statt Zählern passende Kennzahlen in Klammern. Blatt = Preis je 1.000 Exemplare (Viertelseite hoch ÷ Auflage),
+  // KI-Studio: statt Zählern passende Kennzahlen in Klammern. Blatt = Vergleichspreis je 1.000 Exemplare × 1/8 Seite,
   // Kampagne = Anzeigen + Kosten pro Lead, Kategorie/Ton/Baustein/Layout = geschätzte Kosten pro Lead aus dem Lern-Modell.
   function studioWerte() {
     const setze = (el, info) => { if (!el) return; for (const o of el.options) { if (o.dataset.l == null) o.dataset.l = o.textContent; const t = info(o.value); o.textContent = t ? `${o.dataset.l} (${t})` : o.dataset.l; } };
     const model = trainModel(A());
     const cpl = (feat) => (v) => { if (!model) return ""; const e = model.f[feat]?.get(v); if (!e || !e.c) return "ungetestet"; return `≈ ${eur2(1 / (model.g * e.factor))} je Lead${e.weight < 0.5 ? ", unsicher" : ""}`; };
-    setze($("st-blatt"), (id) => { const b = blattById(id); if (!b) return ""; const preis = stdPreis(b, "q-hoch"), auf = num(b.auflage); return preis && auf ? `${eur2(preis / (auf / 1000))} je 1.000 Ex.` : "Preis fehlt"; });
+    setze($("st-blatt"), (id) => { const b = blattById(id); if (!b) return ""; const vp = vpListe(b); return vp ? `${eur2(vp)} je 1.000 Ex. × 1/8` : "Preis fehlt"; });
     setze($("st-kampagne"), (id) => { if (!id) return ""; const ads = A().filter((a) => a.kampagneId === id); let k = 0, l = 0; ads.forEach((a) => { const s = adStats(a); k += s.kosten; l += s.leads; }); return `${ads.length} Anz.` + (l ? ` · ${eur2(k / l)} je Lead` : ""); });
     setze($("st-kategorie"), cpl("kategorie")); setze($("st-ton"), cpl("ton")); setze($("st-viral"), cpl("viral"));
     setze($("st-layout"), (v) => (v === "auto" ? "" : cpl("layout")(v)));
@@ -1179,7 +1181,7 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
   $("kw-modus").innerHTML = MODI.map((m, i) => `<label class="modus"><input type="radio" name="kw-modus" value="${m.id}"${i === 0 ? " checked" : ""}><span><b>${esc(m.name)}</b><small>${esc(m.d)}</small></span></label>`).join("");
   $("kw-modus").addEventListener("change", () => modusAnwenden(kwModus()));
   $("a-layout").innerHTML = options(Object.entries(LAYOUTS).map(([value, label]) => ({ value, label })), "A"); $("st-layout").innerHTML = `<option value="auto">KI wählt passend</option>` + options(Object.entries(LAYOUTS).map(([value, label]) => ({ value, label })));
-  $("a-format").innerHTML = options(FORMATE.map((f) => ({ value: f.id, label: f.label })), "q-hoch");
+  $("a-format").innerHTML = options(FORMATE.map((f) => ({ value: f.id, label: f.label })), "achtel");
   $("a-kontaktwege").innerHTML = checks("akw", KANAELE, ["Telefon", "URL"]);
   $("a-status").innerHTML = options(STATUS, "geplant"); $("ad-filter").innerHTML += options(STATUS);
   $("k-kanal").innerHTML = options(KONTAKT_KANAELE); $("b-tag").innerHTML = options(["—", ...TAGE]);
@@ -1241,7 +1243,7 @@ Antworte nur mit JSON-Array von 3-5 Vorschlägen: [{"blattId":"...","kategorie":
     "s-metacpm": "Was 1.000 Einblendungen bei Meta (Facebook/Instagram) etwa kosten. Analytics vergleicht damit, was 1.000 Exemplare Auflage im Wochenblatt kosten („Lokal günstiger als Meta?“).",
     // KI-Studio
     "st-kampagne": "Zu welcher Kampagne die neuen Anzeigen gehören. Wählbar sind nur eure eigenen Kampagnen. Beispielkampagnen sind ausgegraut, weil Beispieldaten nicht bearbeitet werden. Ohne Kampagne landen die Anzeigen lose unter „Anzeigen“. In Klammern: Anzahl Anzeigen und bisherige Kosten pro Lead.",
-    "st-blatt": "Für welches Wochenblatt getextet wird. Bestimmt Stadt (Lokalbezug), Tracking-Code und Format. In Klammern: Preis je 1.000 Exemplare (Viertelseite hoch ÷ Auflage), damit Blätter vergleichbar sind.",
+    "st-blatt": "Für welches Wochenblatt getextet wird. Bestimmt Stadt (Lokalbezug), Tracking-Code und Format. In Klammern: Vergleichspreis je 1.000 Exemplare × 1/8 Seite, damit Blätter vergleichbar sind.",
     "st-kategorie": "Wofür die Anzeigen werben. In Klammern: geschätzte Kosten pro Lead aus dem Lern-Modell („ungetestet“ = noch keine geschalteten Anzeigen damit).",
     "st-anzahl": "Wie viele Varianten die KI auf einmal erstellt. Mehrere Varianten lassen sich später gegeneinander testen.",
     "st-ton": "Tonalität der Texte, z. B. seriös, humorvoll oder ironisch. In Klammern: geschätzte Kosten pro Lead aus dem Lern-Modell („ungetestet“ = noch keine geschalteten Anzeigen damit).",
