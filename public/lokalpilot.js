@@ -68,12 +68,12 @@
   const LAYOUTS = { A: "A · Foto + 3 Häkchen", B: "B · Frage + Badge", C: "C · Ein Anruf. Drei Angebote.", D: "D · 3 Schritte", P: "P · Format-Parodie" };
   const FORMATE = [
     { id: "1x60", label: "1 Sp. × 60 mm", w: 45, h: 60 }, { id: "2x95", label: "2 Sp. × 95 mm", w: 93, h: 95 },
-    { id: "3x140", label: "3 Sp. × 140 mm", w: 141, h: 140 }, { id: "q-hoch", label: "1/4 Seite hoch", w: 141, h: 200 },
+    { id: "3x140", label: "3 Sp. × 140 mm", w: 141, h: 140 }, { id: "achtel", label: "1/8 Seite (3 Sp. × 100 mm)", w: 141, h: 100 }, { id: "q-hoch", label: "1/4 Seite hoch", w: 141, h: 200 },
     { id: "h-quer", label: "1/2 Seite quer", w: 282, h: 200 }, { id: "ganz", label: "1/1 Seite", w: 282, h: 400 },
   ];
   // Standardpreis (netto) je Blatt und Format – gleiche Regel wie im Buchungs-Agenten (lib/buchung/regeln.js)
-  const SPALTEN_MM = { "1x60": { sp: 1, h: 60 }, "2x95": { sp: 2, h: 95 }, "3x140": { sp: 3, h: 140 } };
-  const stdPreis = (b, fid) => { const p = b?.buchung || {}; const fest = num(p.preise?.[fid]); if (fest > 0) return fest; const mm = num(p.mmPreis), s = SPALTEN_MM[fid]; return mm > 0 && s ? Math.round(mm * s.sp * s.h * 100) / 100 : 0; };
+  const SPALTEN_MM = { "1x60": { sp: 1, h: 60 }, "2x95": { sp: 2, h: 95 }, "3x140": { sp: 3, h: 140 }, achtel: { sp: 3, h: 100 } };
+  const stdPreis = (b, fid) => { const p = b?.buchung || {}; const fest = num(p.preise?.[fid]); if (fest > 0) return fest; const mm = num(p.mmPreis), s = SPALTEN_MM[fid]; if (mm > 0 && s) return Math.round(mm * s.sp * s.h * 100) / 100; const v = num(p.preise?.["q-hoch"]); return fid === "achtel" && v > 0 ? Math.round(v / 2 * 100) / 100 : 0; };
   const stdPreisListe = (b) => Object.fromEntries(FORMATE.map((f) => [f.label, stdPreis(b, f.id)]).filter(([, v]) => v > 0));
   const KANAELE = ["Telefon", "WhatsApp", "QR-Code", "URL"];
   const KONTAKT_KANAELE = [...KANAELE, "Coupon", "Sonstiges"];

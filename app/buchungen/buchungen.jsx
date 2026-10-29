@@ -458,7 +458,7 @@ function Einstellungen({ cfg, speichern }) {
         <label>Absendername<input value={v.absenderName || ""} onChange={(e) => set("absenderName", e.target.value)} /></label>
         <label>Buchen ab … Tage vor Termin<input type="number" value={v.vorlaufTage ?? 21} onChange={(e) => set("vorlaufTage", n(e.target.value))} /></label>
         <label>Spätestens … Tage vor Termin<input type="number" value={v.mindestVorlaufTage ?? 4} onChange={(e) => set("mindestVorlaufTage", n(e.target.value))} /></label>
-        <label>Höchster Vergleichspreis (€ je 1.000 Exemplare × 1/4 Seite, leer = aus)<input type="number" value={v.maxTkpViertelseite ?? ""} onChange={(e) => set("maxTkpViertelseite", n(e.target.value))} /></label>
+        <label>Höchster Vergleichspreis (€ je 1.000 Exemplare × 1/8 Seite, leer = aus)<input type="number" value={v.maxTkpViertelseite ?? ""} onChange={(e) => set("maxTkpViertelseite", n(e.target.value))} /></label>
         <label>Preis-Toleranz über Plan (%)<input type="number" value={v.preisToleranzProzent ?? 15} onChange={(e) => set("preisToleranzProzent", n(e.target.value))} /></label>
         <label>Monatslimit Buchungen (€ netto, leer = keins)<input type="number" value={v.monatsLimit ?? ""} onChange={(e) => set("monatsLimit", n(e.target.value))} /></label>
         <label>Nachfassen nach … Werktagen<input type="number" value={v.nachfassenNachTagen ?? 2} onChange={(e) => set("nachfassenNachTagen", n(e.target.value))} /></label>
@@ -476,7 +476,7 @@ function Einstellungen({ cfg, speichern }) {
       </div>
       <div className="bk-aktionen">
         <button className="b primary" disabled={!f} onClick={async () => { await speichern(v); setF(null); }}>Speichern</button>
-        <span className="bk-hint">Der Agent rechnet jedes Angebot in den Vergleichspreis um (Preis ÷ Auflage in Tausend ÷ Größe in Viertelseiten) und sagt bis zu eurer Grenze ohne Rückfrage zu. Stehen an der Anzeige feste Kosten, gelten diese + Toleranz. Darüber wartet der Agent auf eure Freigabe.</span>
+        <span className="bk-hint">Der Agent rechnet jedes Angebot in den Vergleichspreis um (Preis ÷ Auflage in Tausend ÷ Größe in Achtelseiten) und sagt bis zu eurer Grenze ohne Rückfrage zu. Stehen an der Anzeige feste Kosten, gelten diese + Toleranz. Darüber wartet der Agent auf eure Freigabe.</span>
       </div>
     </details>
   );
@@ -517,7 +517,7 @@ function VerlageFinden({ kandidaten, auftraege, tun }) {
             {liste_.map((k) => {
               const d = k.daten || {};
               const hf = d.hochformat;
-              const vp = hf?.preis && d.auflage && hf.b && hf.h ? Number(hf.preis) / ((Number(d.auflage) / 1000) * ((hf.b * hf.h) / (141 * 200))) : null;
+              const vp = hf?.preis && d.auflage && hf.b && hf.h ? Number(hf.preis) / ((Number(d.auflage) / 1000) * ((hf.b * hf.h) / (141 * 100))) : null;
               return (
                 <tr key={k.id}>
                   <td><b>{d.name || k.name}</b><div className="bk-hint">{d.verlag || k.verlag} · {d.stadt || k.stadt}{k.region ? ` · ${k.region}` : ""}</div>{!!d.unsicher?.length && <div className="bk-warn">Unsicher: {d.unsicher.join("; ")}</div>}</td>
@@ -569,7 +569,7 @@ function Ftp({ b, speichern, tun, hatPw }) {
   );
 }
 
-// Alle Blätter auf einen Nenner: Vergleichspreis = € für 1.000 Exemplare mit einer 1/4 Seite. Kleiner = günstiger.
+// Alle Blätter auf einen Nenner: Vergleichspreis = € für 1.000 Exemplare mit einer 1/8 Seite. Kleiner = günstiger.
 function Vergleich({ blaetter, buchungen, anzeigen, kontakte, cfg }) {
   const grenze = Number(cfg?.maxTkpViertelseite) || null;
   // Ergebnis: nur erschienene Anzeigen mit Kosten – sonst wären Kosten je Anfrage zu früh zu hoch
@@ -595,7 +595,7 @@ function Vergleich({ blaetter, buchungen, anzeigen, kontakte, cfg }) {
     <section className="bk-karte">
       <div className="bk-sechead">
         <h2>Blätter im Vergleich</h2>
-        <span className="bk-hint">Vorher: <b>Vergleichspreis</b> = was es kostet, 1.000 Exemplare mit einer 1/4 Seite zu erreichen (jede Größe, jedes Blatt – kleiner ist günstiger){grenze ? `, eure Grenze ${eur(grenze)}` : ""}. Nachher: <b>Kosten je Anfrage</b> = Anzeigenkosten ÷ eingegangene Kontakte (nur erschienene Anzeigen). Sortiert nach Kosten je Anfrage, solange es noch keine gibt nach Vergleichspreis.</span>
+        <span className="bk-hint">Vorher: <b>Vergleichspreis</b> = was es kostet, 1.000 Exemplare mit einer 1/8 Seite zu erreichen (jede Größe, jedes Blatt – kleiner ist günstiger){grenze ? `, eure Grenze ${eur(grenze)}` : ""}. Nachher: <b>Kosten je Anfrage</b> = Anzeigenkosten ÷ eingegangene Kontakte (nur erschienene Anzeigen). Sortiert nach Kosten je Anfrage, solange es noch keine gibt nach Vergleichspreis.</span>
       </div>
       <div className="bk-tabelle"><table>
         <thead><tr><th>Blatt</th><th>Auflage</th><th>Liste 1/4 Seite</th><th>Vergleichspreis Liste</th><th>Bester gezahlter</th><th>Erschienen</th><th>Anfragen</th><th>Kosten je Anfrage</th><th>Leads</th><th>Kosten je Lead</th><th>Erlös je €</th></tr></thead>
