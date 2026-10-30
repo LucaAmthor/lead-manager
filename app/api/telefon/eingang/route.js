@@ -1,5 +1,5 @@
 import { holen, anlegen, liste } from "@/lib/buchung/db";
-import { cfg, nummerZu, kontaktZumAnruf, bereiteCaller, erreichbar } from "@/lib/telefon/daten";
+import { cfg, nummerZu, kontaktZumAnruf, bereiteCaller, erreichbar, mailAnTeam } from "@/lib/telefon/daten";
 import { stufe, mailbox, ausserhalbTwiml } from "@/lib/telefon/routing";
 import * as tw from "@/lib/telefon/twilio";
 
@@ -25,11 +25,18 @@ export async function POST(request) {
       {
         richtung: "ein", von: p.From || "", an: p.To || "", stadtAnrufer: p.FromCity || "", nummerId: nr?.id || "", anzeigeId: anzeige?.id || "",
         code: anzeige?.code || nr?.letzterCode || "", kategorie: anzeige?.kategorie || "", kampagneId: anzeige?.kampagneId || "", kampagne: kampagne?.name || "",
-        blatt: blatt?.name || "", stadt: blatt?.stadt || "", kanal: nr?.kanal || "print", marke: anzeige?.marke || c.marke, kontaktId, start: Date.now(),
+        blatt: blatt?.name || "", stadt: anzeige?.stadt || blatt?.stadt || "", kanal: nr?.kanal || "print", marke: anzeige?.marke || c.marke, kontaktId, start: Date.now(),
         status: "klingelt", ausserhalb: !offen, ueberlauf: offen && laufend.length >= Math.max(1, bereit.length), nachlauf: nr?.status === "ruhend",
       },
       p.CallSid
     );
+    // Anruf auf einer Nummer ohne Anzeige: der Assistent kennt weder Thema noch Ort → Team informieren (blockiert den Anruf nicht)
+    if (!anzeige) {
+      const nrText = nr?.anzeige || tw.national(p.To, c.ortsnetz) || p.To;
+      mailAnTeam(c, `Lokalpilot: Anruf auf Nummer ohne Anzeige (${nrText})`,
+        `Gerade kam ein Anruf auf ${nrText} an. Diese Nummer gehört zu keiner Anzeige${nr ? ` (Status: ${nr.status || "unbekannt"})` : " und ist nicht im Pool"}. Der Assistent kennt deshalb weder Thema noch Ort und fragt offen nach.\n\nBitte prüfen: Steht die Nummer noch auf einem alten Motiv, einem Entwurf oder in einer Werbung außerhalb von Lokalpilot?\n\nAnrufe: ${tw.appUrl()}/telefon`
+      ).catch((e) => console.error("Telefon: Mail Nummer ohne Anzeige", e));
+    }
     if (!offen) {
       const a = await ausserhalbTwiml(anruf, c);
       if (a) return tw.twiml(a);
