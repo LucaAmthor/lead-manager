@@ -506,7 +506,8 @@ function VerlageFinden({ kandidaten, auftraege, tun }) {
         <button className="b primary" disabled={!region.trim()} onClick={async () => { await tun({ aktion: "verlage_suchen", region, anzahl }, "Suche gestartet – Ergebnisse erscheinen hier nach und nach"); setRegion(""); }}>Suchen</button>
       </div>
       {!!laufend.length && <p className="bk-hint">Läuft: {laufend.map((a) => `${a.region} (${a.status === "sucht" ? "sucht Blätter" : `${a.gefunden || 0} gefunden, Details laufen`})`).join(" · ")}</p>}
-      {auftraege.filter((a) => a.status === "fehler").slice(-1).map((a) => <p key={a.id} className="bk-warn">Suche „{a.region}“ fehlgeschlagen: {a.fehler}</p>)}
+      {kandidaten.some((k) => k.status === "neu" && k.wartetAuf === "guthaben") && <p className="bk-warn">Anthropic-Guthaben leer: {kandidaten.filter((k) => k.status === "neu" && k.wartetAuf === "guthaben").length} Blätter warten. Nach dem Aufladen läuft die Recherche beim nächsten stündlichen Lauf automatisch weiter.</p>}
+      {[...auftraege].sort((x, y) => (x.start || 0) - (y.start || 0)).slice(-1).filter((a) => a.status === "fehler").map((a) => <p key={a.id} className="bk-warn">Suche „{a.region}“ fehlgeschlagen{(a.fehlerAm || a.start) ? ` am ${zeit(a.fehlerAm || a.start)}` : ""}: {a.fehler}</p>)}
       <div className="bk-tabs" style={{ margin: "10px 0" }}>
         {[["offen", "Vorschläge"], ["uebernommen", "Übernommen"], ["alle", "Alle"]].map(([k, l]) => <button key={k} className={zeige === k ? "an" : ""} onClick={() => setZeige(k)}>{l}</button>)}
       </div>
@@ -527,7 +528,7 @@ function VerlageFinden({ kandidaten, auftraege, tun }) {
                   <td>{vp ? eur(vp) : "–"}</td>
                   <td>{d.anzeigenschluss || "–"}</td>
                   <td>{d.emailAnzeigen || <span className="bk-warn">keine E-Mail</span>}<div className="bk-hint">Druckdaten: {d.druckdaten?.weg || "?"}{d.preislisteStand ? ` · ${d.preislisteStand}` : ""}</div>{(d.quellen || []).slice(0, 2).map((q) => <div key={q}><a href={q} target="_blank" rel="noreferrer" className="bk-hint">{String(q).replace(/^https?:\/\//, "").slice(0, 40)} ↗</a></div>)}</td>
-                  <td>{STAT[k.status] || k.status}{k.fehler && <div className="bk-warn">{k.fehler}</div>}{k.kosten ? <div className="bk-hint">{eur(k.kosten)}</div> : null}</td>
+                  <td>{STAT[k.status] || k.status}{k.status === "fehler" && k.fehler && <div className="bk-warn">{(k.fehlerAm || k.seit) ? <b>{zeit(k.fehlerAm || k.seit)}{k.fehlerAm ? "" : " (ca.)"}: </b> : null}{k.fehler}</div>}{k.kosten ? <div className="bk-hint">{eur(k.kosten)}</div> : null}</td>
                   <td>
                     {k.status === "recherchiert" && <button className="b small" onClick={() => tun({ aktion: "kandidat_uebernehmen", id: k.id }, `${d.name || k.name} als Blatt angelegt`)}>Übernehmen</button>}
                     {["fehler", "recherchiert"].includes(k.status) && <button className="b small ghost" onClick={() => tun({ aktion: "kandidat_recherchieren", id: k.id }, "Recherche läuft erneut")}>Neu</button>}
