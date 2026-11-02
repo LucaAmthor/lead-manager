@@ -68,7 +68,7 @@ export async function POST(request) {
         return NextResponse.json({ ok: true });
       case "antwort":
         if (!String(body.text || "").trim()) return fehler("invalid_argument", 400);
-        await antwortSenden(id, String(body.text));
+        await antwortSenden(id, String(body.text), { gegenangebot: body.gegenangebot });
         return NextResponse.json({ ok: true });
       case "abbrechen": {
         const b = await holen("buchungen", id);
