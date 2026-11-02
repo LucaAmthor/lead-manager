@@ -296,7 +296,7 @@ function BuchungKarte({ b, blatt, anzeigen, mails, tun, cfg }) {
         <b>{b.blattName || blatt?.name}</b>
         <span className="mono">{(b.codes || []).join(", ")}</span>
         <span>{b.weg === "shop" ? "Direktbuchung" : b.weg === "anfrage" ? "Anfrage per Mail" : "–"}{b.testmodus ? " · Test" : ""}</span>
-        <span className="bk-preis">{b.preisNetto ? eur(b.preisNetto) : b.angebot?.preisNetto ? `Angebot ${eur(b.angebot.preisNetto)}${(() => { const v = vergleichspreis(b.angebot.preisNetto, anzeigen.map((a) => a.format), blatt); return v ? ` · VP ${eur(v)}` : ""; })()}` : b.planKosten ? `Plan ${eur(b.planKosten)}` : ""}</span>
+        <span className="bk-preis">{b.preisNetto ? eur(b.preisNetto) : b.angebot?.preisNetto ? `Angebot ${eur(b.angebot.preisNetto)}${(() => { const v = vergleichspreis(b.angebot.preisNetto, anzeigen.map((a) => a.format), blatt, b.angebot.formatMm); return v ? ` · VP ${eur(v)}` : ""; })()}` : b.planKosten ? `Plan ${eur(b.planKosten)}` : ""}</span>
         <span className="bk-zeit">{zeit((b.verlauf || []).slice(-1)[0]?.t)}</span>
       </div>
       {b.status === "braucht_hilfe" && b.hilfe && <p className="bk-hilfe">{b.hilfe}</p>}
