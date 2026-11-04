@@ -342,10 +342,10 @@ function BuchungKarte({ b, blatt, anzeigen, mails, tun, cfg }) {
               {mails.map((m) => <Mail key={m.id} m={m} tun={tun} />)}
             </>
           )}
-          {b.status === "wartet_freigabe" && (
+          {(b.status === "wartet_freigabe" || (b.status === "braucht_hilfe" && (b.verlagBestaetigt || /^Verlag hat (zu einem höheren Preis )?bestätigt/.test(b.hilfe || "")))) && (
             <div className="bk-entscheid">
               <label>Höchstpreis netto freigeben <input type="number" step="0.01" value={betrag} onChange={(e) => setBetrag(e.target.value)} /></label>
-              <button className="b primary" onClick={() => tun({ aktion: "freigeben", id: b.id, betrag }, "Freigegeben – Agent macht weiter")}>Freigeben &amp; weiter</button>
+              <button className="b primary" onClick={() => tun({ aktion: "freigeben", id: b.id, betrag }, "Freigegeben – Agent macht weiter")}>{b.status === "braucht_hilfe" ? "Bestätigung annehmen & Druckdaten senden" : <>Freigeben &amp; weiter</>}</button>
             </div>
           )}
           {b.status === "braucht_hilfe" && b.weg === "anfrage" && (
