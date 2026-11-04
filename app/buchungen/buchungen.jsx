@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { buchungsweg, STATUS_TEXT, OFFEN, eur, datumLang, tageBis, heuteISO, FORMATE, standardpreis, vergleichspreis } from "@/lib/buchung/regeln";
+import { buchungsweg, STATUS_TEXT, OFFEN, eur, datumLang, tageBis, heuteISO, FORMATE, standardpreis, vergleichspreis, verhandlungsErgebnis } from "@/lib/buchung/regeln";
 
 // Seite „Buchungen“: was der Buchungs-Agent tut, wo er Hilfe braucht, wie jedes Blatt gebucht wird.
 const SAMMLUNGEN = ["blaetter", "anzeigen", "buchungen", "buchung_mails", "einstellungen", "kampagnen", "kontakte", "blatt_kandidaten", "recherche_auftraege"];
 const TON = {
   neu: "info", shop_laeuft: "info", anfrage_gesendet: "info", zusage_gesendet: "info", gebucht: "good", abgeschlossen: "good",
-  test_fertig: "good", wartet_freigabe: "warn", wartet_verifizierung: "warn", braucht_hilfe: "crit", abgelehnt: "muted", abgebrochen: "muted",
+  test_fertig: "good", wartet_freigabe: "warn", wartet_verifizierung: "warn", braucht_hilfe: "crit", abgelehnt: "muted", abgebrochen: "muted", zurueckgestellt: "muted",
 };
 const zeit = (t) => (t ? new Date(t).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
 
@@ -168,6 +168,7 @@ export default function Buchungen({ email }) {
       <VerlageFinden kandidaten={arr("blatt_kandidaten")} auftraege={arr("recherche_auftraege")} tun={tun} />
 
       {!!blaetter.length && <Vergleich blaetter={blaetter} buchungen={arr("buchungen")} anzeigen={arr("anzeigen")} kontakte={arr("kontakte")} cfg={cfg} />}
+      {!!blaetter.length && <Verhandlungen blaetter={blaetter} buchungen={arr("buchungen")} anzeigen={arr("anzeigen")} />}
 
       <section className="bk-karte">
         <div className="bk-sechead">
@@ -462,7 +463,7 @@ function Einstellungen({ cfg, speichern }) {
         <label>Preis-Toleranz über Plan (%)<input type="number" value={v.preisToleranzProzent ?? 15} onChange={(e) => set("preisToleranzProzent", n(e.target.value))} /></label>
         <label>Monatslimit Buchungen (€ netto, leer = keins)<input type="number" value={v.monatsLimit ?? ""} onChange={(e) => set("monatsLimit", n(e.target.value))} /></label>
         <label>Nachfassen nach … Werktagen<input type="number" value={v.nachfassenNachTagen ?? 2} onChange={(e) => set("nachfassenNachTagen", n(e.target.value))} /></label>
-        <label>Nachverhandeln: Ziel-Rabatt (%, 0 = aus)<input type="number" value={v.zielRabattProzent ?? 15} onChange={(e) => set("zielRabattProzent", n(e.target.value))} /></label>
+        <label>Nachverhandeln: Ziel-Rabatt (%, 0 = aus)<input type="number" value={v.zielRabattProzent ?? 25} onChange={(e) => set("zielRabattProzent", n(e.target.value))} /></label>
         <label>Antwort frühestens nach … Min.<input type="number" value={v.abstandMinMin ?? 20} onChange={(e) => set("abstandMinMin", n(e.target.value))} /></label>
         <label>Antwort spätestens nach … Min.<input type="number" value={v.abstandMaxMin ?? 90} onChange={(e) => set("abstandMaxMin", n(e.target.value))} /></label>
         <label>Nur zu Bürozeiten senden (Mo–Fr 8–17:30)<select value={v.geschaeftszeiten === false ? "nein" : "ja"} onChange={(e) => set("geschaeftszeiten", e.target.value === "ja")}><option value="ja">Ja</option><option value="nein">Nein</option></select></label>
@@ -706,5 +707,45 @@ function Preise({ b, speichern }) {
         </label>
       </div>
     </details>
+  );
+}
+
+// Alle Verhandlungen mit Verlagen (Luca, 04.11.2026): Grundlage, um den Einstieg je Verlag künftig passend zu wählen.
+const ERGEBNIS_TEXT = { angenommen: "✅ Gegenangebot angenommen", konter: "↔️ Verlag kontert", abgelehnt: "❌ kein Nachlass", offen: "⏳ Antwort offen", ohne: "– sofort zugesagt" };
+function Verhandlungen({ blaetter, buchungen, anzeigen }) {
+  const zeilen = buchungen
+    .filter((b) => !b.testmodus && !b.demo && b.weg !== "shop")
+    .map((b) => ({ b, v: verhandlungsErgebnis(b), blatt: blaetter.find((x) => x.id === b.blattId), codes: (b.codes || anzeigen.filter((a) => (b.anzeigeIds || []).includes(a.id)).map((a) => a.code)).join(", ") }))
+    .filter((z) => z.v)
+    .sort((x, y) => (y.b.erstelltAm || 0) - (x.b.erstelltAm || 0));
+  if (!zeilen.length) return null;
+  const fertig = zeilen.filter((z) => z.b.nachverhandelt && z.v.ergebnis !== "offen");
+  const schnitt = fertig.length ? Math.round((fertig.reduce((s, z) => s + (z.v.nachlassProzent || 0), 0) / fertig.length) * 10) / 10 : null;
+  const quote = fertig.length ? Math.round((fertig.filter((z) => z.v.ergebnis !== "abgelehnt").length / fertig.length) * 100) : null;
+  const pct = (v) => (v == null ? "–" : `${String(v).replace(".", ",")} %`);
+  return (
+    <section className="bk-karte">
+      <div className="bk-sechead">
+        <h2>Verhandlungen</h2>
+        <span className="bk-hint">Jede Nachverhandlung: erstes Angebot, unser Gegenangebot, Endpreis. {fertig.length ? <>Bisher {fertig.length} abgeschlossen, in {quote} % gab es Nachlass, im Schnitt <b>{pct(schnitt)}</b>.</> : null} Wer keinen Nachlass gibt und über dem Vergleichspreis-Limit liegt, wird zurückgestellt (keine Absage).</span>
+      </div>
+      <div className="bk-tabelle"><table>
+        <thead><tr><th>Anzeige</th><th>Blatt</th><th>Erstes Angebot</th><th>Gegenangebot</th><th>Endpreis</th><th>Ergebnis</th><th>Nachlass</th><th>Vergleichspreis</th></tr></thead>
+        <tbody>
+          {zeilen.map(({ b, v, blatt, codes }) => (
+            <tr key={b.id}>
+              <td>{codes || "–"}</td>
+              <td>{blatt?.name || "–"}</td>
+              <td>{eur(v.erstes)}</td>
+              <td>{v.gegen ? `${eur(v.gegen)} (−${pct(v.gegenProzent)})` : "–"}</td>
+              <td>{v.end ? eur(v.end) : "–"}</td>
+              <td>{ERGEBNIS_TEXT[v.ergebnis]}</td>
+              <td className={v.nachlassProzent > 0 ? "bk-gut" : ""}>{v.ergebnis === "offen" ? "–" : pct(v.nachlassProzent)}</td>
+              <td>{b.kennzahlen?.vergleichspreis ? eur(b.kennzahlen.vergleichspreis) : "–"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table></div>
+    </section>
   );
 }
