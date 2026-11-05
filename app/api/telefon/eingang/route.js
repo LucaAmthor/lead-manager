@@ -24,7 +24,7 @@ export async function POST(request) {
       "anrufe",
       {
         richtung: "ein", von: p.From || "", an: p.To || "", stadtAnrufer: p.FromCity || "", nummerId: nr?.id || "", anzeigeId: anzeige?.id || "",
-        code: anzeige?.code || nr?.letzterCode || "", kategorie: anzeige?.kategorie || "", kampagneId: anzeige?.kampagneId || "", kampagne: kampagne?.name || "",
+        code: anzeige?.code || nr?.letzterCode || "", kategorie: anzeige?.kategorie || "", themen: Array.isArray(anzeige?.themen) ? anzeige.themen : [], kampagneId: anzeige?.kampagneId || "", kampagne: kampagne?.name || "",
         blatt: blatt?.name || "", stadt: anzeige?.stadt || blatt?.stadt || "", kanal: nr?.kanal || "print", marke: anzeige?.marke || c.marke, kontaktId, start: Date.now(),
         status: "klingelt", ausserhalb: !offen, ueberlauf: offen && laufend.length >= Math.max(1, bereit.length), nachlauf: nr?.status === "ruhend",
       },
