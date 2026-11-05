@@ -114,11 +114,39 @@
   const setChecks = (c, vals) => c.querySelectorAll("input").forEach((i) => { i.checked = (vals || []).includes(i.value); });
   const prefix = (stadt) => (String(stadt || "XXX").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z]/g, "").toUpperCase() + "XXX").slice(0, 3);
   // Aufrufe des Kurz-Links (getippt / QR / Social) und QR-Download – nur in der Server-Version
+  // Aufrufe einer Anzeige: einzeln mit Uhrzeit (Feld „ereignisse“); ältere Tage nur als Tageszähler.
+  // Nicht gezählt: Test-Geräte/angemeldete Nutzer (test) und alles vor dem Erscheinungstag (vorab).
+  const besuchsOffen = new Set();
+  const besuchListe = (a) => {
+    const start = a.datum ? new Date(`${a.datum}T00:00:00`).getTime() : 0;
+    const out = [];
+    for (const b of S.besuche.filter((x) => x.anzeigeId === a.id)) {
+      const ev = Array.isArray(b.ereignisse) ? b.ereignisse : [];
+      for (const e of ev) out.push({ t: num(e.t), art: e.art || "link", geraet: e.geraet || "", test: !!e.test, vorab: !!start && num(e.t) < start, anzahl: 1 });
+      const echteEv = ev.filter((e) => !e.test);
+      const rest = num(b.aufrufe) - echteEv.length;
+      if (rest > 0) out.push({ alt: true, gemischt: ev.length > 0, tag: b.datum, t: num(b.zuletzt), anzahl: rest, qr: Math.max(0, num(b.qr) - echteEv.filter((e) => e.art === "qr").length), vorab: !!a.datum && String(b.datum) < String(a.datum) });
+    }
+    return out.sort((x, y) => y.t - x.t);
+  };
+  const besuchZahlen = (a) => {
+    const l = besuchListe(a); const echt = l.filter((x) => !x.test && !x.vorab);
+    const sum = (arr, f) => arr.reduce((n, x) => n + f(x), 0);
+    return { liste: l, echt: sum(echt, (x) => x.anzahl), qr: sum(echt, (x) => (x.alt ? x.qr : x.art === "qr" ? 1 : 0)), social: sum(echt, (x) => (!x.alt && x.art === "social" ? 1 : 0)), tests: sum(l.filter((x) => x.test || x.vorab), (x) => x.anzahl) };
+  };
+  const zeitFmt = (t) => new Date(t).toLocaleString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const besuchZeilen = (a, l) => l.length ? `<ul class="besuche">${l.map((x) => {
+    const marke = x.test ? ` <span class="chip plain">Test</span>` : x.vorab ? ` <span class="chip plain">vor Erscheinen</span>` : "";
+    if (x.alt) return `<li>${fmtDate(x.tag)}: ${int(x.anzahl)} Aufruf${x.anzahl === 1 ? "" : "e"}${x.qr ? ` (QR ${int(x.qr)})` : ""}${x.gemischt ? "" : `, letzter ${new Date(x.t).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr`} – ohne Einzelzeiten${marke}</li>`;
+    return `<li>${esc(zeitFmt(x.t))} Uhr · ${{ qr: "QR", social: "Social", link: "Link" }[x.art] || "Link"}${x.geraet ? ` · ${esc(x.geraet)}` : ""}${marke}</li>`;
+  }).join("")}</ul>` : "";
   const trackingZeile = (a) => {
     if (a.demo || !window.__lpServer) return "";
-    const b = S.besuche.filter((x) => x.anzeigeId === a.id); const sum = (f) => b.reduce((n, x) => n + num(x[f]), 0);
-    const auf = sum("aufrufe");
-    return `<br>${auf ? `${int(auf)} Aufrufe (QR ${int(sum("qr"))}${sum("social") ? `, Social ${int(sum("social"))}` : ""})` : "noch keine Aufrufe"} · <a href="/api/qr?code=${encodeURIComponent(a.code)}&format=svg">QR</a> <a href="/api/qr?code=${encodeURIComponent(a.code)}&format=png">PNG</a>${S.settings.waNummer ? ` <a href="/api/qr?code=${encodeURIComponent(a.code)}&format=svg&art=wa">WA-QR</a>` : ""} · <button type="button" class="linkbtn" data-act="social">Social</button>${viralZeile(a)}`;
+    const z = besuchZahlen(a); const offen = besuchsOffen.has(a.id);
+    const zahl = z.echt ? `${int(z.echt)} Aufruf${z.echt === 1 ? "" : "e"} seit Erscheinen (QR ${int(z.qr)}${z.social ? `, Social ${int(z.social)}` : ""})` : "noch keine Aufrufe seit Erscheinen";
+    const tests = z.tests ? ` · ${int(z.tests)} Test${z.tests === 1 ? "" : "s"}/vorab` : "";
+    const knopf = z.liste.length ? ` · <button type="button" class="linkbtn" data-act="besuche">${offen ? "Zeiten ausblenden" : "Zeiten"}</button>` : "";
+    return `<br>${zahl}${tests}${knopf} · <a href="/api/qr?code=${encodeURIComponent(a.code)}&format=svg">QR</a> <a href="/api/qr?code=${encodeURIComponent(a.code)}&format=png">PNG</a>${S.settings.waNummer ? ` <a href="/api/qr?code=${encodeURIComponent(a.code)}&format=svg&art=wa">WA-QR</a>` : ""} · <button type="button" class="linkbtn" data-act="social">Social</button>${viralZeile(a)}${offen ? besuchZeilen(a, z.liste) : ""}`;
   };
   // Viral-Faktor = Kontakte über Social (geteilte Fotos) ÷ Kontakte über Print
   const viralZeile = (a) => {
@@ -1026,6 +1054,7 @@ Schreibe ${nAnz} deutlich unterschiedliche Anzeigen. Antworte nur mit einem JSON
     if (btn.dataset.act === "edit") editAd(a);
     if (btn.dataset.act === "bild") bildButton(a, btn);
     if (btn.dataset.act === "social") socialKit(a, btn);
+    if (btn.dataset.act === "besuche") { if (besuchsOffen.has(a.id)) besuchsOffen.delete(a.id); else besuchsOffen.add(a.id); renderAds(); }
     if (btn.dataset.act === "del") armDelete(btn, () => write(() => db.collection("anzeigen").doc(a.id).delete(), `Anzeige ${a.code} gelöscht`));
   });
   function setAdView(v) { adView = v; $("v-anzeigen").querySelector(".split").classList.toggle("full", v === "vorschau"); $("vt-neu").hidden = v !== "vorschau"; $("vt-vorschau").setAttribute("aria-pressed", String(v === "vorschau")); $("vt-liste").setAttribute("aria-pressed", String(v === "liste")); lsSet("lp-adview", v); renderAds(); }

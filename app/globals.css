@@ -410,3 +410,7 @@ option.fz-null{color:var(--ink-3)}
 .kwmodus label.modus span{display:flex;flex-direction:column;gap:2px}
 .kwmodus label.modus small{color:var(--ink-3,#666);font-size:12px;line-height:1.35}
 .checks label.ki-aus{opacity:.45}
+
+/* Einzelne Aufrufe eines Kurz-Links (Anzeigen-Liste → „Zeiten“) */
+ul.besuche{margin:6px 0 0;padding:0 0 0 16px;font-size:12px;line-height:1.6;color:var(--ink-2)}
+ul.besuche .chip{padding:2px 6px;font-size:11px}
